@@ -1,6 +1,6 @@
 <?php
 /**
- * File Handler Class - Upload and parsing functionality
+ * File Handler Class - Manages file uploads and CSV/Excel processing
  */
 
 // Prevent direct access
@@ -10,69 +10,92 @@ if (!defined('ABSPATH')) {
 
 class CDI_File_Handler {
     
+    private $upload_dir;
     private $allowed_types;
     private $max_file_size;
     
     /**
-     * Constructor
+     * Constructor - UPDATED for CSV-only support
      */
     public function __construct() {
-        $this->allowed_types = explode(',', get_option('cdi_allowed_file_types', 'csv,xlsx,xls'));
-        $this->max_file_size = $this->parse_size(get_option('cdi_max_upload_size', '5MB'));
+        $wp_upload_dir = wp_upload_dir();
+        $this->upload_dir = $wp_upload_dir['basedir'] . '/craps-importer/';
+        $this->allowed_types = array('csv'); // CSV only
+        $this->max_file_size = $this->get_max_upload_size();
+        
+        // Create upload directory if it doesn't exist
+        if (!file_exists($this->upload_dir)) {
+            wp_mkdir_p($this->upload_dir);
+            
+            // Add .htaccess for security
+            $htaccess_content = "Options -Indexes\n<Files *.php>\nOrder allow,deny\nDeny from all\n</Files>";
+            file_put_contents($this->upload_dir . '.htaccess', $htaccess_content);
+        }
+    }dir();
+        $this->upload_dir = $wp_upload_dir['basedir'] . '/craps-importer/';
+        $this->allowed_types = array('csv', 'xlsx', 'xls');
+        $this->max_file_size = $this->get_max_upload_size();
+        
+        // Create upload directory if it doesn't exist
+        if (!file_exists($this->upload_dir)) {
+            wp_mkdir_p($this->upload_dir);
+            
+            // Add .htaccess for security
+            $htaccess_content = "Options -Indexes\n<Files *.php>\nOrder allow,deny\nDeny from all\n</Files>";
+            file_put_contents($this->upload_dir . '.htaccess', $htaccess_content);
+        }
     }
     
     /**
-     * Handle file upload from form
+     * Process uploaded file
      */
-    public function handle_upload($file_data) {
+    public function process_upload($file_data) {
         try {
             // Validate file
-            $validation = $this->validate_file($file_data);
-            if (!$validation['success']) {
-                return $validation;
-            }
-            
-            // Parse file based on type
-            $file_extension = strtolower(pathinfo($file_data['name'], PATHINFO_EXTENSION));
-            
-            switch ($file_extension) {
-                case 'csv':
-                    $parsed_data = $this->parse_csv($file_data['tmp_name']);
-                    break;
-                case 'xlsx':
-                case 'xls':
-                    return array(
-                        'success' => false,
-                        'error' => __('Excel files not yet supported. Please export as CSV from Google Sheets.', 'craps-data-importer')
-                    );
-                default:
-                    return array(
-                        'success' => false,
-                        'error' => __('Unsupported file type.', 'craps-data-importer')
-                    );
-            }
-            
-            if (empty($parsed_data)) {
+            $validation_result = $this->validate_upload($file_data);
+            if (!$validation_result['valid']) {
                 return array(
                     'success' => false,
-                    'error' => __('No data found in file or parsing failed.', 'craps-data-importer')
+                    'error' => $validation_result['error']
                 );
             }
             
-            // Store parsed data
-            $upload_id = $this->store_upload_data($parsed_data, $file_data['name']);
+            // Move uploaded file
+            $filename = $this->generate_safe_filename($file_data['name']);
+            $file_path = $this->upload_dir . $filename;
+            
+            if (!move_uploaded_file($file_data['tmp_name'], $file_path)) {
+                throw new Exception(__('Failed to move uploaded file.', 'craps-data-importer'));
+            }
+            
+            // Process file content
+            $file_extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            
+            // Process CSV file only
+            if ($file_extension === 'csv') {
+                $processed_data = $this->process_csv_file($file_path);
+            } else {
+                throw new Exception(__('Only CSV files are supported. Please export your data as CSV.', 'craps-data-importer'));
+            }
+            
+            // Store processed data
+            $this->store_upload_data($filename, $processed_data);
+            
+            // Clean up original file
+            unlink($file_path);
             
             return array(
                 'success' => true,
-                'upload_id' => $upload_id,
-                'data' => $parsed_data,
-                'message' => __('File uploaded and parsed successfully.', 'craps-data-importer')
+                'message' => sprintf(__('Successfully processed %d rows from %d sheets.', 'craps-data-importer'), 
+                                   $processed_data['stats']['total_rows'], 
+                                   $processed_data['stats']['total_sheets']),
+                'data' => $processed_data
             );
             
         } catch (Exception $e) {
             return array(
                 'success' => false,
-                'error' => sprintf(__('Upload error: %s', 'craps-data-importer'), $e->getMessage())
+                'error' => $e->getMessage()
             );
         }
     }
@@ -80,65 +103,73 @@ class CDI_File_Handler {
     /**
      * Validate uploaded file
      */
-    private function validate_file($file_data) {
+    private function validate_upload($file_data) {
         // Check for upload errors
         if ($file_data['error'] !== UPLOAD_ERR_OK) {
             $error_messages = array(
-                UPLOAD_ERR_INI_SIZE => __('File is larger than the server allows.', 'craps-data-importer'),
-                UPLOAD_ERR_FORM_SIZE => __('File is larger than the form allows.', 'craps-data-importer'),
+                UPLOAD_ERR_INI_SIZE => __('File exceeds maximum upload size.', 'craps-data-importer'),
+                UPLOAD_ERR_FORM_SIZE => __('File exceeds form maximum size.', 'craps-data-importer'),
                 UPLOAD_ERR_PARTIAL => __('File was only partially uploaded.', 'craps-data-importer'),
                 UPLOAD_ERR_NO_FILE => __('No file was uploaded.', 'craps-data-importer'),
                 UPLOAD_ERR_NO_TMP_DIR => __('Missing temporary folder.', 'craps-data-importer'),
                 UPLOAD_ERR_CANT_WRITE => __('Failed to write file to disk.', 'craps-data-importer'),
-                UPLOAD_ERR_EXTENSION => __('File upload stopped by extension.', 'craps-data-importer')
+                UPLOAD_ERR_EXTENSION => __('Upload stopped by extension.', 'craps-data-importer')
             );
             
-            $error = $error_messages[$file_data['error']] ?? __('Unknown upload error.', 'craps-data-importer');
-            return array('success' => false, 'error' => $error);
+            return array(
+                'valid' => false,
+                'error' => $error_messages[$file_data['error']] ?? __('Unknown upload error.', 'craps-data-importer')
+            );
         }
         
         // Check file size
         if ($file_data['size'] > $this->max_file_size) {
             return array(
-                'success' => false,
-                'error' => sprintf(
-                    __('File is too large. Maximum size allowed: %s', 'craps-data-importer'),
-                    size_format($this->max_file_size)
-                )
+                'valid' => false,
+                'error' => sprintf(__('File size (%s) exceeds maximum allowed size (%s).', 'craps-data-importer'),
+                                 size_format($file_data['size']),
+                                 size_format($this->max_file_size))
             );
         }
         
-        // Check file extension
+        // Check file type - CSV only
         $file_extension = strtolower(pathinfo($file_data['name'], PATHINFO_EXTENSION));
-        if (!in_array($file_extension, $this->allowed_types)) {
+        if ($file_extension !== 'csv') {
             return array(
-                'success' => false,
-                'error' => sprintf(
-                    __('Invalid file type. Allowed types: %s', 'craps-data-importer'),
-                    implode(', ', $this->allowed_types)
-                )
+                'valid' => false,
+                'error' => __('Only CSV files are supported. Please export as CSV from Google Sheets.', 'craps-data-importer')
             );
         }
         
-        // Check if file exists and is readable
-        if (!file_exists($file_data['tmp_name']) || !is_readable($file_data['tmp_name'])) {
+        // Check MIME type for CSV
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime_type = finfo_file($finfo, $file_data['tmp_name']);
+        finfo_close($finfo);
+        
+        $allowed_mimes = array(
+            'text/csv',
+            'text/plain',
+            'application/csv'
+        );
+        
+        if (!in_array($mime_type, $allowed_mimes)) {
             return array(
-                'success' => false,
-                'error' => __('File is not readable.', 'craps-data-importer')
+                'valid' => false,
+                'error' => sprintf(__('Invalid CSV file format detected. Got: %s', 'craps-data-importer'), $mime_type)
             );
         }
         
-        return array('success' => true);
+        return array('valid' => true);
     }
     
     /**
-     * Parse CSV file
+     * Process CSV file
      */
-    private function parse_csv($file_path) {
+    private function process_csv_file($file_path) {
         $csv_content = file_get_contents($file_path);
         
-        if (empty($csv_content)) {
-            throw new Exception(__('CSV file is empty.', 'craps-data-importer'));
+        if ($csv_content === false) {
+            throw new Exception(__('Unable to read CSV file.', 'craps-data-importer'));
         }
         
         // Detect encoding and convert if needed
@@ -206,339 +237,152 @@ class CDI_File_Handler {
             throw new Exception(__('No valid data rows found in CSV file.', 'craps-data-importer'));
         }
         
-        // Return structured data
         return array(
-            'Community Data' => array(
-                'headers' => $headers,
-                'data' => $data,
+            'data' => array(
+                'Sheet1' => array(
+                    'headers' => $headers,
+                    'data' => $data
+                )
+            ),
+            'stats' => array(
+                'total_sheets' => 1,
                 'total_rows' => count($data),
-                'source_file' => basename($file_path)
+                'valid_casinos' => $this->count_valid_casinos($data)
             )
         );
     }
     
     /**
-     * Custom CSV parser to handle various CSV formats
+     * Count valid casinos in data
      */
-    private function str_getcsv_custom($input, $delimiter = ',', $enclosure = '"', $escape = '\\') {
-        $fp = fopen('php://temp', 'r+');
-        fputs($fp, $input);
-        rewind($fp);
+    private function count_valid_casinos($data) {
+        $count = 0;
         
-        $data = array();
-        while (($row = fgetcsv($fp, 0, $delimiter, $enclosure, $escape)) !== false) {
-            $data[] = $row;
-        }
-        fclose($fp);
-        
-        return count($data) === 1 ? $data[0] : $data;
-    }
-    
-    /**
-     * Normalize header names for consistent processing
-     */
-    private function normalize_headers($headers) {
-        $normalized = array();
-        $header_map = array(
-            'casino' => 'Casino',
-            'casino name' => 'Casino',
-            'name' => 'Casino',
-            'bubble craps' => 'Bubble Craps',
-            'bubble' => 'Bubble Craps',
-            'has bubble craps' => 'Bubble Craps',
-            'min bet' => 'Min Bet',
-            'minimum bet' => 'Min Bet',
-            'minimum' => 'Min Bet',
-            'rewards' => 'Rewards',
-            'rewards program' => 'Rewards',
-            'player rewards' => 'Rewards',
-            'location' => 'Location',
-            'state' => 'Location',
-            'region' => 'Location',
-            'city' => 'Location',
-            'address' => 'Address',
-            'phone' => 'Phone',
-            'website' => 'Website',
-            'url' => 'Website'
-        );
-        
-        foreach ($headers as $header) {
-            $clean_header = strtolower(trim($header));
-            $clean_header = preg_replace('/[^\w\s]/', '', $clean_header);
-            $clean_header = preg_replace('/\s+/', ' ', $clean_header);
-            
-            if (isset($header_map[$clean_header])) {
-                $normalized[] = $header_map[$clean_header];
-            } else {
-                // Capitalize each word for unmapped headers
-                $normalized[] = ucwords(str_replace(['_', '-'], ' ', $header));
+        foreach ($data as $row) {
+            // Check if we have a casino name - handle both "Casino Name" and "Downtown Casino"
+            $casino_name = $row['Casino Name'] ?? $row['Downtown Casino'] ?? '';
+            if (!empty(trim($casino_name))) {
+                $count++;
             }
         }
         
-        return $normalized;
+        return $count;
     }
     
     /**
-     * Clean and validate row data
+     * Generate safe filename
      */
-    private function clean_row_data($row) {
-        $cleaned = array();
+    private function generate_safe_filename($original_name) {
+        $extension = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        $basename = pathinfo($original_name, PATHINFO_FILENAME);
         
-        foreach ($row as $key => $value) {
-            // Clean value
-            $value = trim($value);
-            $value = str_replace(["\r", "\n"], ' ', $value);
-            $value = preg_replace('/\s+/', ' ', $value);
-            
-            // Normalize common values
-            switch ($key) {
-                case 'Bubble Craps':
-                    $value = $this->normalize_boolean_value($value);
-                    break;
-                case 'Min Bet':
-                    $value = $this->normalize_currency_value($value);
-                    break;
-                case 'Rewards':
-                    $value = $this->normalize_rewards_value($value);
-                    break;
-                case 'Phone':
-                    $value = $this->normalize_phone_value($value);
-                    break;
-                case 'Website':
-                    $value = $this->normalize_url_value($value);
-                    break;
-            }
-            
-            $cleaned[$key] = $value;
-        }
+        // Sanitize filename
+        $basename = sanitize_file_name($basename);
+        $basename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $basename);
         
-        return $cleaned;
+        // Add timestamp to avoid conflicts
+        $timestamp = date('Y-m-d_H-i-s');
+        
+        return $basename . '_' . $timestamp . '.' . $extension;
     }
     
     /**
-     * Normalize boolean values (Yes/No, 1/0, etc.)
+     * Store upload data for later processing
      */
-    private function normalize_boolean_value($value) {
-        $value = strtolower(trim($value));
-        
-        $yes_values = array('yes', 'y', '1', 'true', 'has', 'available', 'confirmed');
-        $no_values = array('no', 'n', '0', 'false', 'none', 'unavailable', 'not available');
-        
-        if (in_array($value, $yes_values)) {
-            return 'Yes';
-        } elseif (in_array($value, $no_values)) {
-            return 'No';
-        }
-        
-        return ucfirst($value);
-    }
-    
-    /**
-     * Normalize currency values
-     */
-    private function normalize_currency_value($value) {
-        if (empty($value)) {
-            return '';
-        }
-        
-        $value = trim($value);
-        
-        // Extract numeric value
-        preg_match('/(\d+)/', $value, $matches);
-        if (isset($matches[1])) {
-            $amount = intval($matches[1]);
-            
-            // Standard format
-            if ($amount >= 5) {
-                if (strpos($value, '+') !== false || strpos($value, 'plus') !== false) {
-                    return '
-            ' . $amount . ' +';
-                } else {
-                    return '
-            ' . $amount;
-                }
-            } else {
-                return '
-            ' . $amount;
-            }
-        }
-        
-        // Return original if no number found
-        return $value;
-    }
-    
-    /**
-     * Normalize rewards values
-     */
-    private function normalize_rewards_value($value) {
-        $value = strtolower(trim($value));
-        
-        if (in_array($value, array('yes', 'y', '1', 'true', 'earns', 'gives points'))) {
-            return 'Yes';
-        } elseif (in_array($value, array('no', 'n', '0', 'false', 'no points'))) {
-            return 'No';
-        } elseif (in_array($value, array('unknown', 'unclear', '?', 'not sure'))) {
-            return 'Unknown';
-        }
-        
-        return ucfirst($value);
-    }
-    
-    /**
-     * Normalize phone values
-     */
-    private function normalize_phone_value($value) {
-        if (empty($value)) {
-            return '';
-        }
-        
-        // Remove all non-digit characters except +
-        $phone = preg_replace('/[^\d+]/', '', $value);
-        
-        // Format US phone numbers
-        if (strlen($phone) === 10) {
-            return '(' . substr($phone, 0, 3) . ') ' . substr($phone, 3, 3) . '-' . substr($phone, 6);
-        } elseif (strlen($phone) === 11 && substr($phone, 0, 1) === '1') {
-            return '+1 (' . substr($phone, 1, 3) . ') ' . substr($phone, 4, 3) . '-' . substr($phone, 7);
-        }
-        
-        return $value;
-    }
-    
-    /**
-     * Normalize URL values
-     */
-    private function normalize_url_value($value) {
-        if (empty($value)) {
-            return '';
-        }
-        
-        $value = trim($value);
-        
-        // Add protocol if missing
-        if (!preg_match('/^https?:\/\//', $value)) {
-            $value = 'https://' . $value;
-        }
-        
-        return $value;
-    }
-    
-    /**
-     * Check if row is completely empty
-     */
-    private function is_empty_row($row) {
-        foreach ($row as $key => $value) {
-            if ($key === '_row_number') {
-                continue;
-            }
-            if (!empty(trim($value))) {
-                return false;
-            }
-        }
-        return true;
-    }
-    
-    /**
-     * Store upload data in WordPress options
-     */
-    private function store_upload_data($data, $filename) {
-        $upload_id = 'cdi_' . uniqid();
-        
-        $upload_record = array(
-            'id' => $upload_id,
+    private function store_upload_data($filename, $processed_data) {
+        $storage_data = array(
             'filename' => $filename,
-            'data' => $data,
-            'timestamp' => current_time('mysql'),
-            'user_id' => get_current_user_id(),
-            'stats' => $this->calculate_upload_stats($data)
+            'uploaded_at' => current_time('mysql'),
+            'data' => $processed_data['data'],
+            'stats' => $processed_data['stats']
         );
         
-        update_option('cdi_excel_data', $upload_record);
-        update_option('cdi_last_upload_id', $upload_id);
-        
-        return $upload_id;
-    }
-    
-    /**
-     * Calculate statistics for uploaded data
-     */
-    private function calculate_upload_stats($data) {
-        $stats = array(
-            'total_records' => 0,
-            'sheets' => array(),
-            'bubble_craps_count' => 0,
-            'locations' => array()
-        );
-        
-        foreach ($data as $sheet_name => $sheet_data) {
-            $sheet_stats = array(
-                'records' => count($sheet_data['data']),
-                'bubble_craps' => 0,
-                'locations' => array()
-            );
-            
-            foreach ($sheet_data['data'] as $row) {
-                $stats['total_records']++;
-                
-                // Count bubble craps
-                $bubble_value = $row['Bubble Craps'] ?? '';
-                if ($bubble_value === 'Yes') {
-                    $stats['bubble_craps_count']++;
-                    $sheet_stats['bubble_craps']++;
-                }
-                
-                // Track locations
-                $location = $row['Location'] ?? $sheet_name;
-                if (!empty($location)) {
-                    if (!isset($stats['locations'][$location])) {
-                        $stats['locations'][$location] = 0;
-                    }
-                    $stats['locations'][$location]++;
-                    
-                    if (!isset($sheet_stats['locations'][$location])) {
-                        $sheet_stats['locations'][$location] = 0;
-                    }
-                    $sheet_stats['locations'][$location]++;
-                }
-            }
-            
-            $stats['sheets'][$sheet_name] = $sheet_stats;
-        }
-        
-        return $stats;
+        update_option('cdi_upload_data', $storage_data);
     }
     
     /**
      * Get stored upload data
      */
-    public function get_upload_data($upload_id = null) {
-        if ($upload_id) {
-            $stored_data = get_option('cdi_excel_data');
-            if ($stored_data && $stored_data['id'] === $upload_id) {
-                return $stored_data;
-            }
-            return null;
-        }
-        
-        return get_option('cdi_excel_data');
+    public function get_upload_data() {
+        return get_option('cdi_upload_data', null);
     }
     
     /**
-     * Clear stored upload data
+     * Clear upload data
      */
     public function clear_upload_data() {
-        delete_option('cdi_excel_data');
-        delete_option('cdi_last_upload_id');
-        delete_option('cdi_import_progress');
+        delete_option('cdi_upload_data');
+        
+        // Clean up any temporary files
+        $files = glob($this->upload_dir . '*');
+        foreach ($files as $file) {
+            if (is_file($file)) {
+                unlink($file);
+            }
+        }
     }
     
     /**
-     * Parse size string to bytes (e.g., "5MB" to bytes)
+     * Check server capabilities
+     */
+    public function check_server_capabilities() {
+        $capabilities = array(
+            'limits' => array(
+                'max_upload_size' => $this->get_max_upload_size(),
+                'max_execution_time' => ini_get('max_execution_time'),
+                'memory_limit' => $this->parse_size(ini_get('memory_limit')),
+                'post_max_size' => $this->parse_size(ini_get('post_max_size'))
+            ),
+            'warnings' => array()
+        );
+        
+        // Check for potential issues
+        if ($capabilities['limits']['max_upload_size'] < (5 * 1024 * 1024)) { // Less than 5MB
+            $capabilities['warnings'][] = __('Upload size limit is quite low. Large spreadsheets may fail to upload.', 'craps-data-importer');
+        }
+        
+        if ($capabilities['limits']['max_execution_time'] > 0 && $capabilities['limits']['max_execution_time'] < 60) {
+            $capabilities['warnings'][] = __('Script execution time limit is low. Large imports may timeout.', 'craps-data-importer');
+        }
+        
+        if ($capabilities['limits']['memory_limit'] < (128 * 1024 * 1024)) { // Less than 128MB
+            $capabilities['warnings'][] = __('Memory limit is low. Large spreadsheets may cause memory errors.', 'craps-data-importer');
+        }
+        
+        // Check for required functions
+        if (!function_exists('fgetcsv')) {
+            $capabilities['warnings'][] = __('CSV parsing functions are not available.', 'craps-data-importer');
+        }
+        
+        if (!extension_loaded('mbstring')) {
+            $capabilities['warnings'][] = __('Multibyte string extension is not loaded. Character encoding issues may occur.', 'craps-data-importer');
+        }
+        
+        return $capabilities;
+    }
+    
+    /**
+     * Get maximum upload size
+     */
+    private function get_max_upload_size() {
+        $max_upload = $this->parse_size(ini_get('upload_max_filesize'));
+        $max_post = $this->parse_size(ini_get('post_max_size'));
+        $memory_limit = $this->parse_size(ini_get('memory_limit'));
+        
+        // Return the smallest limit
+        $limits = array_filter(array($max_upload, $max_post, $memory_limit));
+        return !empty($limits) ? min($limits) : 2 * 1024 * 1024; // Default 2MB
+    }
+    
+    /**
+     * Parse size string to bytes
      */
     private function parse_size($size) {
+        if (empty($size)) return 0;
+        
         $size = trim($size);
-        $last = strtolower(substr($size, -1));
-        $size = floatval($size);
+        $last = strtolower($size[strlen($size) - 1]);
+        $size = (int) substr($size, 0, -1);
         
         switch ($last) {
             case 'g':
@@ -549,54 +393,108 @@ class CDI_File_Handler {
                 $size *= 1024;
         }
         
-        return intval($size);
+        return $size;
     }
     
     /**
-     * Get file upload limits from server
+     * Export data as CSV for backup/debugging
      */
-    public function get_upload_limits() {
+    public function export_processed_data() {
+        $upload_data = $this->get_upload_data();
+        
+        if (!$upload_data) {
+            return false;
+        }
+        
+        $filename = 'craps_export_' . date('Y-m-d_H-i-s') . '.csv';
+        $filepath = $this->upload_dir . $filename;
+        
+        $file = fopen($filepath, 'w');
+        
+        foreach ($upload_data['data'] as $sheet_name => $sheet_data) {
+            if (empty($sheet_data['data'])) continue;
+            
+            // Write sheet header
+            fwrite($file, "\n=== " . $sheet_name . " ===\n");
+            
+            // Write column headers
+            if (!empty($sheet_data['headers'])) {
+                fputcsv($file, $sheet_data['headers']);
+            }
+            
+            // Write data rows
+            foreach ($sheet_data['data'] as $row) {
+                // Remove internal fields
+                unset($row['_row_number']);
+                fputcsv($file, $row);
+            }
+        }
+        
+        fclose($file);
+        
+        return $filepath;
+    }
+    
+    /**
+     * Get upload directory info
+     */
+    public function get_upload_dir_info() {
         return array(
-            'max_upload_size' => wp_max_upload_size(),
-            'max_post_size' => $this->parse_size(ini_get('post_max_size')),
-            'max_execution_time' => ini_get('max_execution_time'),
-            'memory_limit' => $this->parse_size(ini_get('memory_limit')),
-            'allowed_types' => $this->allowed_types
+            'path' => $this->upload_dir,
+            'url' => wp_upload_dir()['baseurl'] . '/craps-importer/',
+            'writable' => is_writable($this->upload_dir),
+            'exists' => file_exists($this->upload_dir),
+            'files' => $this->list_upload_files()
         );
     }
     
     /**
-     * Validate server can handle imports
+     * List files in upload directory
      */
-    public function check_server_capabilities() {
-        $limits = $this->get_upload_limits();
-        $warnings = array();
-        
-        if ($limits['max_upload_size'] < $this->parse_size('2MB')) {
-            $warnings[] = sprintf(
-                __('Upload size limit is very low (%s). Consider increasing upload_max_filesize.', 'craps-data-importer'),
-                size_format($limits['max_upload_size'])
-            );
+    private function list_upload_files() {
+        if (!file_exists($this->upload_dir)) {
+            return array();
         }
         
-        if ($limits['memory_limit'] < $this->parse_size('64MB')) {
-            $warnings[] = sprintf(
-                __('Memory limit is low (%s). Large imports may fail.', 'craps-data-importer'),
-                size_format($limits['memory_limit'])
-            );
+        $files = array();
+        $directory_files = scandir($this->upload_dir);
+        
+        foreach ($directory_files as $file) {
+            if ($file === '.' || $file === '..' || $file === '.htaccess') {
+                continue;
+            }
+            
+            $filepath = $this->upload_dir . $file;
+            if (is_file($filepath)) {
+                $files[] = array(
+                    'name' => $file,
+                    'size' => filesize($filepath),
+                    'modified' => filemtime($filepath),
+                    'type' => pathinfo($file, PATHINFO_EXTENSION)
+                );
+            }
         }
         
-        if ($limits['max_execution_time'] > 0 && $limits['max_execution_time'] < 30) {
-            $warnings[] = sprintf(
-                __('Execution time limit is low (%ds). Large imports may timeout.', 'craps-data-importer'),
-                $limits['max_execution_time']
-            );
+        return $files;
+    }
+    
+    /**
+     * Clean old temporary files
+     */
+    public function cleanup_old_files($days = 7) {
+        $cutoff_time = time() - ($days * 24 * 60 * 60);
+        $files = $this->list_upload_files();
+        $cleaned = 0;
+        
+        foreach ($files as $file) {
+            if ($file['modified'] < $cutoff_time) {
+                $filepath = $this->upload_dir . $file['name'];
+                if (unlink($filepath)) {
+                    $cleaned++;
+                }
+            }
         }
         
-        return array(
-            'limits' => $limits,
-            'warnings' => $warnings
-        );
+        return $cleaned;
     }
 }
-            '
