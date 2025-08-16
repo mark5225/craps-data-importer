@@ -210,7 +210,7 @@ class CDI_Processor {
                 'post_title' => $casino_name,
                 'post_content' => $row['Comments'] ?? $row['Description'] ?? '',
                 'post_status' => 'publish',
-                'post_type' => 'at_biz_dir',
+                'post_type' => cdi_get_casino_post_type(), // Use dynamic post type
                 'post_author' => get_current_user_id()
             );
             

@@ -36,7 +36,7 @@ class CDI_Matcher {
         
         // Get all published casino posts
         $args = array(
-            'post_type' => 'at_biz_dir',
+            'post_type' => cdi_get_casino_post_type(), // Use dynamic post type
             'post_status' => 'publish',
             'posts_per_page' => -1,
             'meta_query' => array(
@@ -401,7 +401,7 @@ class CDI_Matcher {
      */
     public function search_casinos($query, $limit = 10) {
         $args = array(
-            'post_type' => 'at_biz_dir',
+            'post_type' => cdi_get_casino_post_type(), // Use dynamic post type
             'post_status' => 'publish',
             'posts_per_page' => $limit,
             's' => $query,
@@ -436,7 +436,7 @@ class CDI_Matcher {
     public function get_casino_data($casino_id) {
         $post = get_post($casino_id);
         
-        if (!$post || $post->post_type !== 'at_biz_dir') {
+        if (!$post || $post->post_type !== cdi_get_casino_post_type()) {
             return null;
         }
         
@@ -539,7 +539,7 @@ class CDI_Matcher {
      * Get total casino count
      */
     private function get_total_casino_count() {
-        $count = wp_count_posts('at_biz_dir');
+        $count = wp_count_posts(cdi_get_casino_post_type()); // Use dynamic post type
         return $count->publish ?? 0;
     }
 }

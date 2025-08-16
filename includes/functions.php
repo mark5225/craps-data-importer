@@ -123,17 +123,35 @@ function cdi_format_url($url) {
 }
 
 /**
- * Get casino post type
+ * Get casino post type - Updated to detect Directorist version
  */
 function cdi_get_casino_post_type() {
+    // Check if we've already detected the post type
+    $stored_post_type = get_option('cdi_directorist_post_type');
+    if ($stored_post_type && post_type_exists($stored_post_type)) {
+        return $stored_post_type;
+    }
+    
+    // Try to detect the correct post type
+    $possible_post_types = array('at_biz_dir', 'atbdp_listings', 'listing');
+    
+    foreach ($possible_post_types as $post_type) {
+        if (post_type_exists($post_type)) {
+            update_option('cdi_directorist_post_type', $post_type);
+            return $post_type;
+        }
+    }
+    
+    // Fallback to the old default
     return 'at_biz_dir';
 }
 
 /**
- * Check if Directorist plugin is active
+ * Check if Directorist plugin is active - Updated detection
  */
 function cdi_is_directorist_active() {
-    return post_type_exists(cdi_get_casino_post_type());
+    $post_type = cdi_get_casino_post_type();
+    return post_type_exists($post_type);
 }
 
 /**

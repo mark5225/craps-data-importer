@@ -1141,11 +1141,21 @@ class CDI_Admin {
         echo '<p><strong>' . esc_html__('Max Upload:', 'craps-data-importer') . '</strong> ' . size_format($server_info['limits']['max_upload_size']) . '</p>';
         echo '<p><strong>' . esc_html__('Memory Limit:', 'craps-data-importer') . '</strong> ' . ini_get('memory_limit') . '</p>';
         
-        // Check if Directorist is active
-        if (post_type_exists('at_biz_dir')) {
-            echo '<p><span style="color: #00a32a;">✅ ' . esc_html__('Directorist Active', 'craps-data-importer') . '</span></p>';
-        } else {
+        // Check if Directorist is active - Updated for newer versions
+        $directorist_post_types = array('at_biz_dir', 'atbdp_listings', 'listing');
+        $directorist_active = false;
+        
+        foreach ($directorist_post_types as $post_type) {
+            if (post_type_exists($post_type)) {
+                $directorist_active = true;
+                break;
+            }
+        }
+        
+        if (!$directorist_active) {
             echo '<p><span style="color: #d63638;">❌ ' . esc_html__('Directorist Required', 'craps-data-importer') . '</span></p>';
+        } else {
+            echo '<p><span style="color: #00a32a;">✅ ' . esc_html__('Directorist Active', 'craps-data-importer') . '</span></p>';
         }
         
         echo '</div>';
