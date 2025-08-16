@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Craps Data Importer
  * Description: Import CSV data for craps tables and bubble craps machines with smart casino matching
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Bubble Craps Team
  * Text Domain: craps-data-importer
  * Domain Path: /languages
@@ -14,11 +14,12 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('CDI_VERSION', '1.0.0');
+define('CDI_VERSION', '1.0.1');
 define('CDI_PLUGIN_FILE', __FILE__);
 define('CDI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CDI_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('CDI_INCLUDES_DIR', CDI_PLUGIN_DIR . 'includes/');
+define('CDI_ASSETS_URL', CDI_PLUGIN_URL . 'assets/');
 
 /**
  * Main plugin class
@@ -46,11 +47,7 @@ class CrapsDataImporter {
      */
     private function __construct() {
         $this->init_hooks();
-        
-        // Only load dependencies if files exist and are not during activation
-        if (!$this->is_activation() && $this->check_files_exist()) {
-            $this->load_dependencies();
-        }
+        $this->load_dependencies();
     }
     
     /**
@@ -59,11 +56,15 @@ class CrapsDataImporter {
     private function init_hooks() {
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
+        
+        // AJAX handlers
         add_action('wp_ajax_cdi_upload_csv', array($this, 'handle_ajax_upload'));
         add_action('wp_ajax_cdi_preview_data', array($this, 'handle_ajax_preview'));
         add_action('wp_ajax_cdi_process_import', array($this, 'handle_ajax_import'));
         add_action('wp_ajax_cdi_search_casino', array($this, 'handle_ajax_search'));
         add_action('wp_ajax_cdi_resolve_queue_item', array($this, 'handle_ajax_resolve'));
+        
         add_action('admin_notices', array($this, 'admin_notices'));
         
         register_activation_hook(__FILE__, array($this, 'activate'));
@@ -71,65 +72,72 @@ class CrapsDataImporter {
     }
     
     /**
-     * Check if required files exist
-     */
-    private function check_files_exist() {
-        $required_files = array(
-            CDI_INCLUDES_DIR . 'cdi-functions.php',
-            CDI_INCLUDES_DIR . 'class-cdi-admin.php',
-            CDI_INCLUDES_DIR . 'class-cdi-processor.php',
-            CDI_INCLUDES_DIR . 'class-cdi-matcher.php'
-        );
-        
-        foreach ($required_files as $file) {
-            if (!file_exists($file) || !is_readable($file)) {
-                return false;
-            }
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Check if we're in activation process
-     */
-    private function is_activation() {
-        return defined('WP_ADMIN') && isset($_GET['action']) && $_GET['action'] === 'activate';
-    }
-    
-    /**
      * Load required files
      */
     private function load_dependencies() {
-        if ($this->dependencies_loaded) {
+        // Load core functions first
+        require_once CDI_INCLUDES_DIR . 'cdi-functions.php';
+        
+        // Load classes
+        require_once CDI_INCLUDES_DIR . 'class-cdi-admin.php';
+        require_once CDI_INCLUDES_DIR . 'class-cdi-processor.php';
+        require_once CDI_INCLUDES_DIR . 'class-cdi-matcher.php';
+        
+        // Initialize classes
+        $this->admin = new CDI_Admin();
+        $this->processor = new CDI_Processor();
+        $this->matcher = new CDI_Matcher();
+        
+        $this->dependencies_loaded = true;
+    }
+    
+    /**
+     * Enqueue admin assets
+     */
+    public function enqueue_admin_assets($hook) {
+        // Only load on our plugin pages
+        if (strpos($hook, 'craps-') === false) {
             return;
         }
         
-        try {
-            require_once CDI_INCLUDES_DIR . 'cdi-functions.php';
-            require_once CDI_INCLUDES_DIR . 'class-cdi-admin.php';
-            require_once CDI_INCLUDES_DIR . 'class-cdi-processor.php';
-            require_once CDI_INCLUDES_DIR . 'class-cdi-matcher.php';
-            
-            $this->admin = new CDI_Admin();
-            $this->processor = new CDI_Processor();
-            $this->matcher = new CDI_Matcher();
-            
-            $this->dependencies_loaded = true;
-        } catch (Exception $e) {
-            // Log error but don't crash
-            error_log('CDI: Failed to load dependencies: ' . $e->getMessage());
-        }
+        // Enqueue CSS
+        wp_enqueue_style(
+            'cdi-admin-style',
+            CDI_ASSETS_URL . 'css/admin.css',
+            array(),
+            CDI_VERSION
+        );
+        
+        // Enqueue JavaScript
+        wp_enqueue_script(
+            'cdi-admin-script',
+            CDI_ASSETS_URL . 'js/admin.js',
+            array('jquery'),
+            CDI_VERSION,
+            true
+        );
+        
+        // Localize script
+        wp_localize_script('cdi-admin-script', 'cdiAjax', array(
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('cdi_nonce'),
+            'strings' => array(
+                'upload_success' => __('File uploaded successfully', 'craps-data-importer'),
+                'upload_error' => __('Upload failed', 'craps-data-importer'),
+                'processing' => __('Processing...', 'craps-data-importer'),
+                'complete' => __('Import complete', 'craps-data-importer')
+            )
+        ));
     }
     
     /**
      * Display admin notices
      */
     public function admin_notices() {
-        if (!$this->check_files_exist()) {
+        if (!$this->dependencies_loaded) {
             echo '<div class="notice notice-error"><p>';
-            echo '<strong>Craps Data Importer:</strong> Required plugin files are missing or corrupted. ';
-            echo 'Please re-upload the complete plugin files to the includes/ directory.';
+            echo '<strong>Craps Data Importer:</strong> Required plugin files are missing. ';
+            echo 'Please ensure all files are properly uploaded.';
             echo '</p></div>';
         }
     }
@@ -138,11 +146,6 @@ class CrapsDataImporter {
      * Initialize plugin
      */
     public function init() {
-        // Ensure dependencies are loaded
-        if (!$this->dependencies_loaded && $this->check_files_exist()) {
-            $this->load_dependencies();
-        }
-        
         load_plugin_textdomain('craps-data-importer', false, dirname(plugin_basename(__FILE__)) . '/languages');
     }
     
@@ -151,16 +154,6 @@ class CrapsDataImporter {
      */
     public function add_admin_menu() {
         if (!$this->dependencies_loaded) {
-            // Add a basic error page if dependencies aren't loaded
-            add_menu_page(
-                __('Craps Data Importer', 'craps-data-importer'),
-                __('Craps Import', 'craps-data-importer'),
-                'manage_options',
-                'craps-data-importer',
-                array($this, 'render_error_page'),
-                'dashicons-upload',
-                30
-            );
             return;
         }
         
@@ -194,46 +187,13 @@ class CrapsDataImporter {
     }
     
     /**
-     * Render error page when files are missing
-     */
-    public function render_error_page() {
-        echo '<div class="wrap">';
-        echo '<h1>Craps Data Importer - Setup Required</h1>';
-        echo '<div class="notice notice-error inline"><p>';
-        echo '<strong>Plugin files are missing or corrupted.</strong><br>';
-        echo 'The following files need to be uploaded to the <code>includes/</code> directory:';
-        echo '<ul>';
-        echo '<li><code>cdi-functions.php</code></li>';
-        echo '<li><code>class-cdi-admin.php</code></li>';
-        echo '<li><code>class-cdi-processor.php</code></li>';
-        echo '<li><code>class-cdi-matcher.php</code></li>';
-        echo '</ul>';
-        echo '</p></div>';
-        
-        echo '<h2>Quick Fix Options:</h2>';
-        echo '<ol>';
-        echo '<li><strong>Re-upload plugin files:</strong> Download the complete plugin files from GitHub and replace the includes/ directory</li>';
-        echo '<li><strong>Manual file check:</strong> Ensure all files in includes/ directory start with <code>&lt;?php</code> and are complete</li>';
-        echo '<li><strong>File permissions:</strong> Verify the includes/ directory and files have proper read permissions</li>';
-        echo '</ol>';
-        
-        echo '<p><a href="' . admin_url('plugins.php') . '" class="button">← Back to Plugins</a></p>';
-        echo '</div>';
-    }
-    
-    /**
      * Handle CSV upload via AJAX
      */
     public function handle_ajax_upload() {
-        if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin files not properly loaded'));
-            return;
-        }
-        
         check_ajax_referer('cdi_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized access', 'craps-data-importer'));
+            wp_send_json_error(array('message' => 'Unauthorized access'));
         }
         
         try {
@@ -248,15 +208,10 @@ class CrapsDataImporter {
      * Handle data preview via AJAX
      */
     public function handle_ajax_preview() {
-        if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin files not properly loaded'));
-            return;
-        }
-        
         check_ajax_referer('cdi_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized access', 'craps-data-importer'));
+            wp_send_json_error(array('message' => 'Unauthorized access'));
         }
         
         try {
@@ -271,15 +226,10 @@ class CrapsDataImporter {
      * Handle import processing via AJAX
      */
     public function handle_ajax_import() {
-        if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin files not properly loaded'));
-            return;
-        }
-        
         check_ajax_referer('cdi_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized access', 'craps-data-importer'));
+            wp_send_json_error(array('message' => 'Unauthorized access'));
         }
         
         try {
@@ -300,15 +250,10 @@ class CrapsDataImporter {
      * Handle casino search via AJAX
      */
     public function handle_ajax_search() {
-        if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin files not properly loaded'));
-            return;
-        }
-        
         check_ajax_referer('cdi_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized access', 'craps-data-importer'));
+            wp_send_json_error(array('message' => 'Unauthorized access'));
         }
         
         $search_term = sanitize_text_field($_POST['search'] ?? '');
@@ -321,15 +266,10 @@ class CrapsDataImporter {
      * Handle review queue item resolution via AJAX
      */
     public function handle_ajax_resolve() {
-        if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin files not properly loaded'));
-            return;
-        }
-        
         check_ajax_referer('cdi_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
-            wp_die(__('Unauthorized access', 'craps-data-importer'));
+            wp_send_json_error(array('message' => 'Unauthorized access'));
         }
         
         try {
@@ -348,11 +288,10 @@ class CrapsDataImporter {
      * Plugin activation
      */
     public function activate() {
-        // Create review queue table
         global $wpdb;
         
+        // Create review queue table
         $table_name = $wpdb->prefix . 'cdi_review_queue';
-        
         $charset_collate = $wpdb->get_charset_collate();
         
         $sql = "CREATE TABLE $table_name (
@@ -392,16 +331,32 @@ class CrapsDataImporter {
         add_option('cdi_similarity_threshold', 80);
         add_option('cdi_auto_update', 1);
         add_option('cdi_update_existing', 1);
+        
+        // Create assets directory if it doesn't exist
+        $this->create_assets_directory();
+    }
+    
+    /**
+     * Create assets directory and files
+     */
+    private function create_assets_directory() {
+        $css_dir = CDI_PLUGIN_DIR . 'assets/css/';
+        $js_dir = CDI_PLUGIN_DIR . 'assets/js/';
+        
+        if (!file_exists($css_dir)) {
+            wp_mkdir_p($css_dir);
+        }
+        
+        if (!file_exists($js_dir)) {
+            wp_mkdir_p($js_dir);
+        }
     }
     
     /**
      * Plugin deactivation
      */
     public function deactivate() {
-        // Clean up scheduled events if any
         wp_clear_scheduled_hook('cdi_cleanup_old_imports');
-        
-        // Clean up transients
         delete_transient('cdi_csv_data');
         delete_transient('cdi_preview_data');
     }

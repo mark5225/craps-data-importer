@@ -3,7 +3,6 @@
  * Helper functions for Craps Data Importer
  */
 
-// Prevent direct access
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -20,244 +19,24 @@ function cdi_truncate_text($text, $length = 50, $suffix = '...') {
 }
 
 /**
- * Get Directorist casino count
+ * Format casino types for display
  */
-function cdi_get_casino_count() {
-    $count = wp_count_posts('at_biz_dir');
-    return $count->publish ?? 0;
-}
-
-/**
- * Get review queue count
- */
-function cdi_get_review_queue_count() {
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'cdi_review_queue';
-    
-    return $wpdb->get_var(
-        "SELECT COUNT(*) FROM $table_name WHERE status = 'pending'"
-    );
-}
-
-/**
- * Get import history count
- */
-function cdi_get_import_history_count() {
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'cdi_import_history';
-    
-    return $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-}
-
-/**
- * Clean casino name for display
- */
-function cdi_clean_display_name($name) {
-    return ucwords(strtolower(trim($name)));
-}
-
-/**
- * Format currency value
- */
-function cdi_format_currency($value) {
-    if (empty($value) || !is_numeric($value)) {
-        return $value;
-    }
-    
-    return '$' . number_format(floatval($value), 0);
-}
-
-/**
- * Convert boolean values to Yes/No
- */
-function cdi_format_boolean($value) {
-    if (is_bool($value)) {
-        return $value ? 'Yes' : 'No';
-    }
-    
-    $value = strtolower(trim($value));
-    
-    if (in_array($value, ['yes', 'y', '1', 'true'])) {
-        return 'Yes';
-    } elseif (in_array($value, ['no', 'n', '0', 'false'])) {
-        return 'No';
-    } else {
-        return 'Unknown';
-    }
-}
-
-/**
- * Get bubble craps category ID
- */
-function cdi_get_bubble_craps_category_id($has_bubble_craps = true) {
-    $category_name = $has_bubble_craps ? 'Has Bubble Craps' : 'No Bubble Craps (or unknown)';
-    
-    $term = get_term_by('name', $category_name, 'at_biz_dir-categories');
-    
-    return $term ? $term->term_id : null;
-}
-
-/**
- * Get or create bubble craps tag
- */
-function cdi_get_or_create_tag($tag_name) {
-    $term = get_term_by('name', $tag_name, 'at_biz_dir-tags');
-    
-    if (!$term) {
-        $result = wp_insert_term($tag_name, 'at_biz_dir-tags');
-        
-        if (!is_wp_error($result)) {
-            $term = get_term($result['term_id'], 'at_biz_dir-tags');
-        }
-    }
-    
-    return $term;
-}
-
-/**
- * Validate CSV headers
- */
-function cdi_validate_csv_headers($headers) {
-    $required_headers = array('Casino', 'Downtown Casino');
-    $found_required = false;
-    
-    foreach ($required_headers as $required) {
-        if (in_array($required, $headers)) {
-            $found_required = true;
-            break;
-        }
-    }
-    
-    return array(
-        'valid' => $found_required,
-        'message' => $found_required ? 
-            'Valid CSV headers detected' : 
-            'Missing required casino name column'
-    );
-}
-
-/**
- * Get field mapping for CSV to WordPress
- */
-function cdi_get_field_mappings() {
-    return array(
-        'csv_to_meta' => array(
-            'WeekDay Min' => '_custom-radio-2',
-            'WeekNight Min' => '_custom-radio-7',
-            'Weekend Min' => '_custom-radio-8', 
-            'WeekendNight Min' => '_custom-radio-9',
-            'Rewards' => '_custom-radio-5',
-            'Sidebet' => '_custom-checkbox-2'
-        ),
-        'bubble_craps_fields' => array(
-            'types' => '_custom-checkbox',
-            'min_bet' => '_custom-radio-3',
-            'rewards' => '_custom-radio'
-        ),
-        'min_bet_ranges' => array(
-            'N/A or Unknown',
-            '$1 - $10',
-            '$11 - $20', 
-            '$20 +'
-        ),
-        'bubble_craps_types' => array(
-            'none' => 'No Bubble Craps or Unknown',
-            'single' => 'Single Machine',
-            'stadium' => 'Stadium Craps',
-            'crapless' => 'Crapless Craps',
-            'casino-wizard' => 'Casino Wizard',
-            'rtw' => 'Roll to Win'
-        )
-    );
-}
-
-/**
- * Log import activity
- */
-function cdi_log_activity($message, $level = 'info') {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log("CDI [{$level}]: {$message}");
-    }
-}
-
-/**
- * Get casino meta field value with fallback
- */
-function cdi_get_casino_meta($casino_id, $meta_key, $default = '') {
-    $value = get_post_meta($casino_id, $meta_key, true);
-    
-    return !empty($value) ? $value : $default;
-}
-
-/**
- * Update casino meta field safely
- */
-function cdi_update_casino_meta($casino_id, $meta_key, $value, $prev_value = '') {
-    if (empty($prev_value)) {
-        return update_post_meta($casino_id, $meta_key, $value);
-    } else {
-        return update_post_meta($casino_id, $meta_key, $value, $prev_value);
-    }
-}
-
-/**
- * Get casino categories
- */
-function cdi_get_casino_categories($casino_id) {
-    return wp_get_post_terms($casino_id, 'at_biz_dir-categories', array(
-        'fields' => 'names'
-    ));
-}
-
-/**
- * Get casino tags
- */
-function cdi_get_casino_tags($casino_id) {
-    return wp_get_post_terms($casino_id, 'at_biz_dir-tags', array(
-        'fields' => 'names'
-    ));
-}
-
-/**
- * Check if casino has bubble craps
- */
-function cdi_has_bubble_craps($casino_id) {
-    $categories = cdi_get_casino_categories($casino_id);
-    return in_array('Has Bubble Craps', $categories);
-}
-
-/**
- * Get bubble craps types for casino
- */
-function cdi_get_bubble_craps_types($casino_id) {
-    $types = get_post_meta($casino_id, '_custom-checkbox', true);
-    
-    if (is_array($types)) {
-        return $types;
-    } elseif (is_string($types)) {
-        return explode(',', $types);
-    }
-    
-    return array();
-}
-
-/**
- * Format bubble craps types for display
- */
-function cdi_format_bubble_craps_types($types) {
+function cdi_format_casino_types($types) {
     if (empty($types)) {
-        return 'None';
+        return '';
     }
     
-    $mappings = cdi_get_field_mappings();
-    $type_labels = $mappings['bubble_craps_types'];
+    if (is_string($types)) {
+        $types = explode(',', $types);
+    }
     
     $formatted = array();
-    foreach ((array)$types as $type) {
-        $formatted[] = $type_labels[$type] ?? ucfirst($type);
+    foreach ($types as $type) {
+        $type = trim($type);
+        $formatted[] = !empty($type) ? ucfirst($type) : '';
     }
     
-    return implode(', ', $formatted);
+    return implode(', ', array_filter($formatted));
 }
 
 /**
@@ -343,6 +122,11 @@ function cdi_update_option($option_name, $value) {
 function cdi_get_casino_location($casino_id) {
     // Try meta field first
     $location = get_post_meta($casino_id, '_location', true);
+    
+    if (empty($location)) {
+        // Try address field
+        $location = get_post_meta($casino_id, '_address', true);
+    }
     
     if (empty($location)) {
         // Try taxonomy
@@ -454,4 +238,46 @@ function cdi_validate_uploaded_file($file) {
         'valid' => true,
         'message' => 'File is valid'
     );
+}
+
+/**
+ * Log import activity
+ */
+function cdi_log($message, $level = 'info') {
+    if (!cdi_get_option('enable_logging')) {
+        return;
+    }
+    
+    $log_entry = sprintf(
+        '[%s] [%s] %s',
+        date('Y-m-d H:i:s'),
+        strtoupper($level),
+        $message
+    );
+    
+    error_log($log_entry);
+}
+
+/**
+ * Get file upload errors
+ */
+function cdi_get_upload_error_message($error_code) {
+    switch ($error_code) {
+        case UPLOAD_ERR_INI_SIZE:
+            return 'File size exceeds PHP upload_max_filesize directive';
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'File size exceeds HTML form MAX_FILE_SIZE directive';
+        case UPLOAD_ERR_PARTIAL:
+            return 'File was only partially uploaded';
+        case UPLOAD_ERR_NO_FILE:
+            return 'No file was uploaded';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Missing temporary folder';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Failed to write file to disk';
+        case UPLOAD_ERR_EXTENSION:
+            return 'File upload stopped by extension';
+        default:
+            return 'Unknown upload error';
+    }
 }
