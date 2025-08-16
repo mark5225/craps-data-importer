@@ -1,17 +1,11 @@
 <?php
 /**
  * Plugin Name: Craps Data Importer
- * Plugin URI: https://bubble-craps.com
- * Description: Import and manage craps casino data from community spreadsheets with enhanced fuzzy matching and detailed reporting
+ * Description: Import CSV data for craps tables and bubble craps machines with smart casino matching
  * Version: 1.0.0
- * Author: Bubble-Craps.com
- * License: GPL v2 or later
+ * Author: Bubble Craps Team
  * Text Domain: craps-data-importer
  * Domain Path: /languages
- * 
- * Requires at least: 5.0
- * Tested up to: 6.4
- * Requires PHP: 7.4
  */
 
 // Prevent direct access
@@ -24,105 +18,201 @@ define('CDI_VERSION', '1.0.0');
 define('CDI_PLUGIN_FILE', __FILE__);
 define('CDI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CDI_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('CDI_PLUGIN_BASENAME', plugin_basename(__FILE__));
+define('CDI_INCLUDES_DIR', CDI_PLUGIN_DIR . 'includes/');
 
 /**
- * Main Plugin Bootstrap Class - MINIMAL VERSION FOR DEBUGGING
+ * Main plugin class
  */
 class CrapsDataImporter {
     
     private static $instance = null;
+    private $admin;
+    private $processor;
+    private $matcher;
     
     /**
-     * Get singleton instance
+     * Singleton pattern
      */
-    public static function get_instance() {
-        if (null === self::$instance) {
+    public static function instance() {
+        if (self::$instance === null) {
             self::$instance = new self();
         }
         return self::$instance;
     }
     
     /**
-     * Constructor - Initialize the plugin
+     * Constructor
      */
     private function __construct() {
-        add_action('plugins_loaded', array($this, 'init'));
+        $this->init_hooks();
+        $this->load_dependencies();
+    }
+    
+    /**
+     * Initialize WordPress hooks
+     */
+    private function init_hooks() {
+        add_action('init', array($this, 'init'));
+        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('wp_ajax_cdi_upload_csv', array($this, 'handle_ajax_upload'));
+        add_action('wp_ajax_cdi_preview_data', array($this, 'handle_ajax_preview'));
+        add_action('wp_ajax_cdi_process_import', array($this, 'handle_ajax_import'));
+        add_action('wp_ajax_cdi_search_casino', array($this, 'handle_ajax_search'));
+        add_action('wp_ajax_cdi_resolve_queue_item', array($this, 'handle_ajax_resolve'));
         
-        // Activation and deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
     }
     
     /**
-     * Initialize plugin after WordPress loads
+     * Load required files
+     */
+    private function load_dependencies() {
+        require_once CDI_INCLUDES_DIR . 'class-cdi-admin.php';
+        require_once CDI_INCLUDES_DIR . 'class-cdi-processor.php';
+        require_once CDI_INCLUDES_DIR . 'class-cdi-matcher.php';
+        require_once CDI_INCLUDES_DIR . 'cdi-functions.php';
+        
+        $this->admin = new CDI_Admin();
+        $this->processor = new CDI_Processor();
+        $this->matcher = new CDI_Matcher();
+    }
+    
+    /**
+     * Initialize plugin
      */
     public function init() {
-        // Load text domain for translations
-        load_plugin_textdomain('craps-data-importer', false, dirname(CDI_PLUGIN_BASENAME) . '/languages');
+        load_plugin_textdomain('craps-data-importer', false, dirname(plugin_basename(__FILE__)) . '/languages');
+    }
+    
+    /**
+     * Add admin menu pages
+     */
+    public function add_admin_menu() {
+        add_menu_page(
+            __('Craps Data Importer', 'craps-data-importer'),
+            __('Craps Import', 'craps-data-importer'),
+            'manage_options',
+            'craps-data-importer',
+            array($this->admin, 'render_main_page'),
+            'dashicons-upload',
+            30
+        );
         
-        // DEBUGGING: Let's see what files exist
-        $this->check_files();
+        add_submenu_page(
+            'craps-data-importer',
+            __('Review Queue', 'craps-data-importer'),
+            __('Review Queue', 'craps-data-importer'),
+            'manage_options',
+            'craps-review-queue',
+            array($this->admin, 'render_review_page')
+        );
         
-        // Load required files
-        $this->load_files();
+        add_submenu_page(
+            'craps-data-importer',
+            __('Import History', 'craps-data-importer'),
+            __('Import History', 'craps-data-importer'),
+            'manage_options',
+            'craps-import-history',
+            array($this->admin, 'render_history_page')
+        );
+    }
+    
+    /**
+     * Handle CSV upload via AJAX
+     */
+    public function handle_ajax_upload() {
+        check_ajax_referer('cdi_nonce', 'nonce');
         
-        // Initialize main plugin class only if all files loaded
-        if (class_exists('CDI_Main')) {
-            CDI_Main::get_instance();
-        } else {
-            add_action('admin_notices', function() {
-                echo '<div class="notice notice-error"><p>CDI_Main class not found. Check file loading.</p></div>';
-            });
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Unauthorized access', 'craps-data-importer'));
+        }
+        
+        try {
+            $result = $this->processor->handle_csv_upload();
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
     
     /**
-     * Check which files exist - DEBUGGING
+     * Handle data preview via AJAX
      */
-    private function check_files() {
-        $files = array(
-            'includes/functions.php',
-            'includes/class-main.php',
-            'includes/class-file-handler.php',
-            'includes/class-matcher.php',
-            'includes/class-processor.php',
-            'includes/class-admin.php'
-        );
+    public function handle_ajax_preview() {
+        check_ajax_referer('cdi_nonce', 'nonce');
         
-        $missing = array();
-        foreach ($files as $file) {
-            $file_path = CDI_PLUGIN_DIR . $file;
-            if (!file_exists($file_path)) {
-                $missing[] = $file;
-            }
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Unauthorized access', 'craps-data-importer'));
         }
         
-        if (!empty($missing)) {
-            add_action('admin_notices', function() use ($missing) {
-                echo '<div class="notice notice-error"><p><strong>Missing files:</strong><br>' . implode('<br>', $missing) . '</p></div>';
-            });
+        try {
+            $result = $this->processor->preview_csv_data();
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
     
     /**
-     * Load all required plugin files
+     * Handle import processing via AJAX
      */
-    private function load_files() {
-        $files = array(
-            'includes/functions.php',
-            'includes/class-main.php',
-            'includes/class-file-handler.php',
-            'includes/class-matcher.php',
-            'includes/class-processor.php',
-            'includes/class-admin.php'
-        );
+    public function handle_ajax_import() {
+        check_ajax_referer('cdi_nonce', 'nonce');
         
-        foreach ($files as $file) {
-            $file_path = CDI_PLUGIN_DIR . $file;
-            if (file_exists($file_path)) {
-                require_once $file_path;
-            }
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Unauthorized access', 'craps-data-importer'));
+        }
+        
+        try {
+            $settings = array(
+                'auto_update' => filter_var($_POST['auto_update'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'similarity_threshold' => absint($_POST['similarity_threshold'] ?? 80),
+                'update_existing' => filter_var($_POST['update_existing'] ?? true, FILTER_VALIDATE_BOOLEAN)
+            );
+            
+            $result = $this->processor->process_import($settings);
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
+    }
+    
+    /**
+     * Handle casino search via AJAX
+     */
+    public function handle_ajax_search() {
+        check_ajax_referer('cdi_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Unauthorized access', 'craps-data-importer'));
+        }
+        
+        $search_term = sanitize_text_field($_POST['search'] ?? '');
+        $results = $this->matcher->search_casinos($search_term);
+        
+        wp_send_json_success($results);
+    }
+    
+    /**
+     * Handle review queue item resolution via AJAX
+     */
+    public function handle_ajax_resolve() {
+        check_ajax_referer('cdi_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Unauthorized access', 'craps-data-importer'));
+        }
+        
+        try {
+            $queue_id = absint($_POST['queue_id'] ?? 0);
+            $action = sanitize_text_field($_POST['action'] ?? '');
+            $casino_id = absint($_POST['casino_id'] ?? 0);
+            
+            $result = $this->processor->resolve_queue_item($queue_id, $action, $casino_id);
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
         }
     }
     
@@ -130,152 +220,99 @@ class CrapsDataImporter {
      * Plugin activation
      */
     public function activate() {
-        // Simple activation - just set a flag
-        add_option('cdi_activation_time', current_time('mysql'));
-        add_option('cdi_version', CDI_VERSION);
+        // Create review queue table
+        global $wpdb;
         
-        // Try to activate main class if it exists
-        if (class_exists('CDI_Main')) {
-            CDI_Main::activate();
-        }
+        $table_name = $wpdb->prefix . 'cdi_review_queue';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            casino_name varchar(255) NOT NULL,
+            csv_data longtext NOT NULL,
+            reason varchar(255) NOT NULL,
+            status varchar(20) DEFAULT 'pending',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY status (status),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+        
+        // Create import history table
+        $history_table = $wpdb->prefix . 'cdi_import_history';
+        
+        $sql2 = "CREATE TABLE $history_table (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            filename varchar(255) NOT NULL,
+            total_rows int(11) NOT NULL,
+            processed_rows int(11) NOT NULL,
+            updated_casinos int(11) NOT NULL,
+            queued_items int(11) NOT NULL,
+            import_settings longtext,
+            import_date datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY import_date (import_date)
+        ) $charset_collate;";
+        
+        dbDelta($sql2);
+        
+        // Set default options
+        add_option('cdi_similarity_threshold', 80);
+        add_option('cdi_auto_update', 1);
+        add_option('cdi_update_existing', 1);
     }
     
     /**
      * Plugin deactivation
      */
     public function deactivate() {
-        // Simple cleanup
-        wp_clear_scheduled_hook('cdi_cleanup_old_data');
-        wp_cache_flush();
+        // Clean up scheduled events if any
+        wp_clear_scheduled_hook('cdi_cleanup_old_imports');
+        
+        // Clean up transients
+        delete_transient('cdi_csv_data');
+        delete_transient('cdi_preview_data');
+    }
+    
+    /**
+     * Get admin instance
+     */
+    public function get_admin() {
+        return $this->admin;
+    }
+    
+    /**
+     * Get processor instance
+     */
+    public function get_processor() {
+        return $this->processor;
+    }
+    
+    /**
+     * Get matcher instance
+     */
+    public function get_matcher() {
+        return $this->matcher;
     }
 }
-
-// Initialize the plugin
-CrapsDataImporter::get_instance();<?php
-/**
- * Plugin Name: Craps Data Importer
- * Plugin URI: https://bubble-craps.com
- * Description: Import and manage craps casino data from community spreadsheets with enhanced fuzzy matching and detailed reporting
- * Version: 1.0.0
- * Author: Bubble-Craps.com
- * License: GPL v2 or later
- * Text Domain: craps-data-importer
- * Domain Path: /languages
- * 
- * Requires at least: 5.0
- * Tested up to: 6.4
- * Requires PHP: 7.4
- */
-
-// Prevent direct access
-if (!defined('ABSPATH')) {
-    exit;
-}
-
-// Define plugin constants
-define('CDI_VERSION', '1.0.0');
-define('CDI_PLUGIN_FILE', __FILE__);
-define('CDI_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('CDI_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('CDI_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 /**
- * Main Plugin Bootstrap Class - SIMPLIFIED
+ * Initialize the plugin
  */
-class CrapsDataImporter {
-    
-    private static $instance = null;
-    
-    /**
-     * Get singleton instance
-     */
-    public static function get_instance() {
-        if (null === self::$instance) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-    
-    /**
-     * Constructor - Initialize the plugin
-     */
-    private function __construct() {
-        add_action('plugins_loaded', array($this, 'init'));
-        
-        // Activation and deactivation hooks
-        register_activation_hook(__FILE__, array($this, 'activate'));
-        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
-    }
-    
-    /**
-     * Initialize plugin after WordPress loads
-     */
-    public function init() {
-        // Load text domain for translations
-        load_plugin_textdomain('craps-data-importer', false, dirname(CDI_PLUGIN_BASENAME) . '/languages');
-        
-        // Load required files
-        $this->load_files();
-        
-        // Initialize main plugin class
-        CDI_Main::get_instance();
-    }
-    
-    /**
-     * Load all required plugin files
-     */
-    private function load_files() {
-        $files = array(
-            'includes/functions.php',
-            'includes/class-main.php',
-            'includes/class-file-handler.php',
-            'includes/class-matcher.php',
-            'includes/class-processor.php',
-            'includes/class-admin.php'
-        );
-        
-        foreach ($files as $file) {
-            $file_path = CDI_PLUGIN_DIR . $file;
-            if (file_exists($file_path)) {
-                require_once $file_path;
-            } else {
-                add_action('admin_notices', function() use ($file) {
-                    echo '<div class="notice notice-error"><p>';
-                    echo sprintf(__('Craps Data Importer: Missing required file %s', 'craps-data-importer'), $file);
-                    echo '</p></div>';
-                });
-            }
-        }
-    }
-    
-    /**
-     * Plugin activation
-     */
-    public function activate() {
-        // Create database tables and set default options
-        if (class_exists('CDI_Main')) {
-            CDI_Main::activate();
-        }
-        
-        // Set activation flag for any one-time setup
-        add_option('cdi_activation_time', current_time('mysql'));
-        add_option('cdi_version', CDI_VERSION);
-        
-        // Clear any caches
-        wp_cache_flush();
-    }
-    
-    /**
-     * Plugin deactivation
-     */
-    public function deactivate() {
-        // Clear scheduled events if any
-        wp_clear_scheduled_hook('cdi_cleanup_old_data');
-        
-        // Clear caches
-        wp_cache_flush();
-    }
+function cdi_init() {
+    return CrapsDataImporter::instance();
 }
 
-// Initialize the plugin
-CrapsDataImporter::get_instance();
+// Start the plugin
+cdi_init();
+
+/**
+ * Helper function to get plugin instance
+ */
+function cdi() {
+    return CrapsDataImporter::instance();
+}
