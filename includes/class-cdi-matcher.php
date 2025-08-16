@@ -250,12 +250,6 @@ class CDI_Matcher {
         similar_text(strtolower($str1), strtolower($str2), $sim_text);
         $similarities[] = $sim_text;
         
-        // Jaro-Winkler if available
-        if (function_exists('jaro_winkler_similarity')) {
-            $jw_sim = jaro_winkler_similarity($str1, $str2) * 100;
-            $similarities[] = $jw_sim;
-        }
-        
         // Soundex comparison
         if (soundex($str1) === soundex($str2)) {
             $similarities[] = 85; // Boost for phonetic similarity

@@ -386,9 +386,13 @@ class CDI_Admin {
         .cdi-search-result .casino-title { font-weight: bold; color: #1d3557; }
         .cdi-search-result .casino-meta { font-size: 12px; color: #666; margin-top: 4px; }
         #threshold_value { margin-left: 10px; font-weight: bold; }
+        .cdi-results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .cdi-stat-box { text-align: center; padding: 15px; border-radius: 8px; border: 2px solid #e1e5e9; }
+        .cdi-stat-number { font-size: 28px; font-weight: bold; margin-bottom: 5px; }
         @media (max-width: 782px) {
             .cdi-grid { grid-template-columns: 1fr; }
             .cdi-modal-content { width: 95vw; }
+            .cdi-results-grid { grid-template-columns: repeat(2, 1fr); }
         }
         </style>
         <?php

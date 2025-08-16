@@ -8,7 +8,17 @@ class CDI_Processor {
     private $matcher;
     
     public function __construct() {
-        $this->matcher = new CDI_Matcher();
+        // Don't instantiate matcher here - do it when needed
+    }
+    
+    /**
+     * Get matcher instance
+     */
+    private function get_matcher() {
+        if (!$this->matcher) {
+            $this->matcher = new CDI_Matcher();
+        }
+        return $this->matcher;
     }
     
     /**
@@ -266,7 +276,7 @@ class CDI_Processor {
         }
         
         // Find matching casino
-        $match_result = $this->matcher->find_casino_match($casino_name, $settings['similarity_threshold']);
+        $match_result = $this->get_matcher()->find_casino_match($casino_name, $settings['similarity_threshold']);
         
         if (!$match_result['casino']) {
             // No match found - add to queue
@@ -498,4 +508,237 @@ class CDI_Processor {
     public function resolve_queue_item($queue_id, $action, $casino_id = 0) {
         global $wpdb;
         
-        $table_name
+        $table_name = $wpdb->prefix . 'cdi_review_queue';
+        
+        // Get queue item
+        $queue_item = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $queue_id)
+        );
+        
+        if (!$queue_item) {
+            throw new Exception(__('Queue item not found', 'craps-data-importer'));
+        }
+        
+        $csv_data = json_decode($queue_item->csv_data, true);
+        
+        if ($action === 'match' && $casino_id > 0) {
+            // Update the matched casino
+            $changes = $this->update_casino_fields($casino_id, $csv_data, true);
+            
+            // Mark as resolved
+            $wpdb->update(
+                $table_name,
+                array('status' => 'resolved'),
+                array('id' => $queue_id),
+                array('%s'),
+                array('%d')
+            );
+            
+            return array(
+                'success' => true,
+                'message' => __('Casino updated successfully', 'craps-data-importer'),
+                'changes' => $changes
+            );
+        } elseif ($action === 'skip') {
+            // Mark as skipped
+            $wpdb->update(
+                $table_name,
+                array('status' => 'skipped'),
+                array('id' => $queue_id),
+                array('%s'),
+                array('%d')
+            );
+            
+            return array(
+                'success' => true,
+                'message' => __('Item skipped', 'craps-data-importer')
+            );
+        }
+        
+        throw new Exception(__('Invalid action', 'craps-data-importer'));
+    }
+    
+    /**
+     * Save import history
+     */
+    private function save_import_history($csv_data, $results, $settings) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'cdi_import_history';
+        
+        $wpdb->insert(
+            $table_name,
+            array(
+                'filename' => $csv_data['source_file'],
+                'total_rows' => $results['total'],
+                'processed_rows' => $results['total'] - $results['errors'],
+                'updated_casinos' => $results['updated'],
+                'queued_items' => $results['queued'],
+                'import_settings' => json_encode($settings),
+                'import_date' => current_time('mysql')
+            ),
+            array('%s', '%d', '%d', '%d', '%d', '%s', '%s')
+        );
+    }
+    
+    /**
+     * Convert CSV value to WordPress format
+     */
+    private function convert_csv_value_to_wp($field, $value) {
+        switch ($field) {
+            case 'WeekDay Min':
+            case 'WeekNight Min':
+            case 'Weekend Min':
+            case 'WeekendNight Min':
+                return $this->convert_min_bet_value($value);
+                
+            case 'Rewards':
+                return $this->convert_rewards_value($value);
+                
+            case 'Sidebet':
+                return $this->convert_sidebet_value($value);
+                
+            default:
+                return $value;
+        }
+    }
+    
+    /**
+     * Convert minimum bet value to WordPress format
+     */
+    private function convert_min_bet_value($value) {
+        if (empty($value) || $value === 'Unknown' || $value === 'N/A') {
+            return 'N/A or Unknown';
+        }
+        
+        // Convert numeric values to ranges
+        $numeric = intval($value);
+        
+        if ($numeric <= 10) {
+            return '$1 - $10';
+        } elseif ($numeric <= 20) {
+            return '$11 - $20';
+        } else {
+            return '$20 +';
+        }
+    }
+    
+    /**
+     * Convert rewards value
+     */
+    private function convert_rewards_value($value) {
+        $value = strtolower(trim($value));
+        
+        if (in_array($value, ['yes', 'y', '1', 'true'])) {
+            return 'Yes';
+        } elseif (in_array($value, ['no', 'n', '0', 'false'])) {
+            return 'No';
+        } else {
+            return 'Unknown';
+        }
+    }
+    
+    /**
+     * Convert sidebet value to array format
+     */
+    private function convert_sidebet_value($value) {
+        if (empty($value) || $value === 'No' || $value === 'None') {
+            return array();
+        }
+        
+        $sidebets = array();
+        $value = strtolower($value);
+        
+        $sidebet_map = array(
+            'fire' => 'Fire Bet',
+            'small' => 'All Small',
+            'tall' => 'All Tall',
+            'make' => 'Make \'Em All',
+            'sharp' => 'Sharp Shooter',
+            'repeat' => 'Repeater Bets'
+        );
+        
+        foreach ($sidebet_map as $key => $label) {
+            if (strpos($value, $key) !== false) {
+                $sidebets[] = $label;
+            }
+        }
+        
+        return empty($sidebets) ? array('Other') : $sidebets;
+    }
+    
+    /**
+     * Normalize bubble craps value
+     */
+    private function normalize_bubble_craps_value($value) {
+        $value = strtolower(trim($value));
+        
+        if (in_array($value, ['yes', 'y', '1', 'true', 'has'])) {
+            return 'Yes';
+        } elseif (in_array($value, ['no', 'n', '0', 'false', 'none'])) {
+            return 'No';
+        } else {
+            return $value;
+        }
+    }
+    
+    /**
+     * Normalize boolean value
+     */
+    private function normalize_boolean_value($value) {
+        $value = strtolower(trim($value));
+        
+        if (in_array($value, ['yes', 'y', '1', 'true'])) {
+            return 'Yes';
+        } elseif (in_array($value, ['no', 'n', '0', 'false'])) {
+            return 'No';
+        } else {
+            return 'Unknown';
+        }
+    }
+    
+    /**
+     * Normalize currency value
+     */
+    private function normalize_currency_value($value) {
+        if (empty($value)) return '';
+        
+        // Remove currency symbols and whitespace
+        $value = preg_replace('/[^\d.-]/', '', $value);
+        
+        if (is_numeric($value)) {
+            return '$' . number_format(floatval($value), 0);
+        }
+        
+        return $value;
+    }
+    
+    /**
+     * Normalize rewards value  
+     */
+    private function normalize_rewards_value($value) {
+        $value = trim($value);
+        
+        if (empty($value) || strtolower($value) === 'unknown') {
+            return 'Unknown';
+        }
+        
+        // Common rewards programs mapping
+        $rewards_map = array(
+            'players club' => 'Players Club',
+            'total rewards' => 'Total Rewards',
+            'mychoice' => 'myChoice',
+            'rewards club' => 'Rewards Club',
+            'vip' => 'VIP Program'
+        );
+        
+        $lower_value = strtolower($value);
+        foreach ($rewards_map as $key => $mapped) {
+            if (strpos($lower_value, $key) !== false) {
+                return $mapped;
+            }
+        }
+        
+        return $value;
+    }
+}

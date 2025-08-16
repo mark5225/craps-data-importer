@@ -408,86 +408,6 @@ function cdi_get_recent_stats($days = 30) {
 }
 
 /**
- * Clean up old import data
- */
-function cdi_cleanup_old_data($days = 90) {
-    global $wpdb;
-    
-    $tables = array(
-        $wpdb->prefix . 'cdi_import_history',
-        $wpdb->prefix . 'cdi_review_queue'
-    );
-    
-    $date_threshold = date('Y-m-d H:i:s', strtotime("-{$days} days"));
-    $cleaned = 0;
-    
-    foreach ($tables as $table) {
-        $deleted = $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$table} WHERE created_at < %s OR import_date < %s",
-            $date_threshold,
-            $date_threshold
-        ));
-        
-        $cleaned += $deleted;
-    }
-    
-    return $cleaned;
-}
-
-/**
- * Export review queue to CSV
- */
-function cdi_export_review_queue() {
-    global $wpdb;
-    
-    $table_name = $wpdb->prefix . 'cdi_review_queue';
-    $items = $wpdb->get_results(
-        "SELECT * FROM {$table_name} WHERE status = 'pending' ORDER BY created_at DESC"
-    );
-    
-    if (empty($items)) {
-        return false;
-    }
-    
-    $filename = 'review-queue-' . date('Y-m-d') . '.csv';
-    $filepath = wp_upload_dir()['basedir'] . '/' . $filename;
-    
-    $handle = fopen($filepath, 'w');
-    
-    // Headers
-    fputcsv($handle, array('Casino Name', 'Reason', 'CSV Data', 'Date Created'));
-    
-    // Data rows
-    foreach ($items as $item) {
-        $csv_data = json_decode($item->csv_data, true);
-        $csv_summary = '';
-        
-        if ($csv_data) {
-            $summary_parts = array();
-            foreach (array_slice($csv_data, 0, 3) as $key => $value) {
-                $summary_parts[] = "{$key}: {$value}";
-            }
-            $csv_summary = implode(' | ', $summary_parts);
-        }
-        
-        fputcsv($handle, array(
-            $item->casino_name,
-            $item->reason,
-            $csv_summary,
-            $item->created_at
-        ));
-    }
-    
-    fclose($handle);
-    
-    return array(
-        'filename' => $filename,
-        'filepath' => $filepath,
-        'url' => wp_upload_dir()['baseurl'] . '/' . $filename
-    );
-}
-
-/**
  * JSON encode for JavaScript with proper escaping
  */
 function cdi_json_encode_for_js($data) {
@@ -502,85 +422,6 @@ function cdi_is_directorist_active() {
 }
 
 /**
- * Get plugin status information
- */
-function cdi_get_plugin_status() {
-    return array(
-        'directorist_active' => cdi_is_directorist_active(),
-        'database_ready' => cdi_check_database_tables(),
-        'upload_dir_writable' => wp_is_writable(wp_upload_dir()['basedir']),
-        'php_version' => PHP_VERSION,
-        'wp_version' => get_bloginfo('version')
-    );
-}
-
-/**
- * Check if required database tables exist
- */
-function cdi_check_database_tables() {
-    global $wpdb;
-    
-    $tables = array(
-        $wpdb->prefix . 'cdi_review_queue',
-        $wpdb->prefix . 'cdi_import_history'
-    );
-    
-    foreach ($tables as $table) {
-        $exists = $wpdb->get_var("SHOW TABLES LIKE '{$table}'");
-        if (!$exists) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-/**
- * Get system requirements status
- */
-function cdi_check_system_requirements() {
-    $requirements = array(
-        'php_version' => array(
-            'required' => '7.4',
-            'current' => PHP_VERSION,
-            'status' => version_compare(PHP_VERSION, '7.4', '>=')
-        ),
-        'wp_version' => array(
-            'required' => '5.0',
-            'current' => get_bloginfo('version'),
-            'status' => version_compare(get_bloginfo('version'), '5.0', '>=')
-        ),
-        'directorist' => array(
-            'required' => 'Active',
-            'current' => cdi_is_directorist_active() ? 'Active' : 'Inactive',
-            'status' => cdi_is_directorist_active()
-        ),
-        'upload_writable' => array(
-            'required' => 'Writable',
-            'current' => wp_is_writable(wp_upload_dir()['basedir']) ? 'Writable' : 'Not Writable',
-            'status' => wp_is_writable(wp_upload_dir()['basedir'])
-        )
-    );
-    
-    return $requirements;
-}
-
-/**
- * Display admin notice
- */
-function cdi_admin_notice($message, $type = 'info') {
-    $class = 'notice notice-' . $type;
-    printf('<div class="%1$s"><p>%2$s</p></div>', esc_attr($class), esc_html($message));
-}
-
-/**
- * Get allowed file extensions
- */
-function cdi_get_allowed_extensions() {
-    return array('csv');
-}
-
-/**
  * Validate uploaded file
  */
 function cdi_validate_uploaded_file($file) {
@@ -591,7 +432,7 @@ function cdi_validate_uploaded_file($file) {
         );
     }
     
-    $allowed_extensions = cdi_get_allowed_extensions();
+    $allowed_extensions = array('csv');
     $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     
     if (!in_array($file_extension, $allowed_extensions)) {
@@ -613,18 +454,4 @@ function cdi_validate_uploaded_file($file) {
         'valid' => true,
         'message' => 'File is valid'
     );
-}
-
-/**
- * Get upload progress (for future enhancement)
- */
-function cdi_get_upload_progress($session_id) {
-    return get_transient('cdi_upload_progress_' . $session_id);
-}
-
-/**
- * Set upload progress (for future enhancement)
- */
-function cdi_set_upload_progress($session_id, $progress) {
-    set_transient('cdi_upload_progress_' . $session_id, $progress, 300);
 }
