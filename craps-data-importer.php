@@ -373,6 +373,20 @@ class CrapsDataImporter {
     }
     
     /**
+ * Handle AJAX import processing
+ */
+public function handle_ajax_import() {
+    if (!$this->dependencies_loaded) {
+        wp_send_json_error('Plugin dependencies not loaded properly');
+        return;
+    }
+    
+    // Let the processor handle the import
+    $this->processor->process_import();
+}
+	
+	
+	/**
      * Handle data preview via AJAX
      */
     public function handle_ajax_preview() {

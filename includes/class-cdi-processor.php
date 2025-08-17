@@ -1,6 +1,7 @@
 <?php
 /**
- * Data processor for Craps Data Importer
+ * CDI_Processor - Actually processes imports and updates WordPress database
+ * This is the missing piece that makes the plugin actually work!
  */
 
 if (!defined('ABSPATH')) {
@@ -9,318 +10,309 @@ if (!defined('ABSPATH')) {
 
 class CDI_Processor {
     
-    private $matcher;
-    
-    public function __construct() {
-        // Matcher will be initialized when needed
-    }
-    
     /**
-     * Get matcher instance
+     * Process the import based on form selections
      */
-    private function get_matcher() {
-        if (!$this->matcher) {
-            $this->matcher = new CDI_Matcher();
-        }
-        return $this->matcher;
-    }
-    
-    /**
-     * Handle CSV file upload
-     */
-    public function handle_csv_upload() {
-        if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-            throw new Exception(__('File upload failed', 'craps-data-importer'));
+    public function process_import() {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'cdi_nonce')) {
+            wp_send_json_error('Security check failed');
+            return;
         }
         
-        $file = $_FILES['csv_file'];
-        $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        
-        if ($file_extension !== 'csv') {
-            throw new Exception(__('Please upload a CSV file only', 'craps-data-importer'));
+        // Get CSV data from transient
+        $csv_data = get_transient('cdi_csv_data');
+        if (!$csv_data) {
+            wp_send_json_error('No CSV data found. Please upload a file first.');
+            return;
         }
         
-        $csv_data = $this->parse_csv_file($file['tmp_name']);
-        
-        if (empty($csv_data)) {
-            throw new Exception(__('Could not parse CSV file or no data found', 'craps-data-importer'));
-        }
-        
-        // Store data temporarily
-        set_transient('cdi_csv_data', $csv_data, 3600);
-        
-        return array(
-            'success' => true,
-            'message' => __('CSV file uploaded successfully', 'craps-data-importer'),
-            'rows_found' => count($csv_data['data']),
-            'redirect' => admin_url('admin.php?page=craps-data-importer&step=preview')
+        // Get form selections (if any)
+        $row_actions = isset($_POST['row_actions']) ? $_POST['row_actions'] : array();
+        $settings = array(
+            'auto_update' => isset($_POST['auto_update']) ? intval($_POST['auto_update']) : 1,
+            'similarity_threshold' => isset($_POST['similarity_threshold']) ? intval($_POST['similarity_threshold']) : 80,
+            'update_existing' => isset($_POST['update_existing']) ? intval($_POST['update_existing']) : 1
         );
-    }
-    
-    /**
-     * Parse CSV file
-     */
-    private function parse_csv_file($file_path) {
-        if (!file_exists($file_path)) {
-            throw new Exception(__('File not found', 'craps-data-importer'));
-        }
         
-        $data = array();
-        $headers = array();
+        $results = array(
+            'updated' => 0,
+            'created' => 0,
+            'skipped' => 0,
+            'queued' => 0,
+            'errors' => 0,
+            'details' => array()
+        );
         
-        if (($handle = fopen($file_path, 'r')) !== FALSE) {
-            $row_count = 0;
-            
-            while (($row = fgetcsv($handle, 1000, ',')) !== FALSE) {
-                if ($row_count === 0) {
-                    // First row contains headers
-                    $headers = array_map('trim', $row);
-                } else {
-                    // Data rows
-                    $row_data = array();
-                    foreach ($headers as $index => $header) {
-                        $row_data[$header] = isset($row[$index]) ? trim($row[$index]) : '';
-                    }
-                    $data[] = $row_data;
-                }
-                $row_count++;
+        // Process each row
+        foreach ($csv_data['data'] as $index => $row) {
+            $casino_name = $this->extract_casino_name_from_row($row);
+            if (empty($casino_name)) {
+                $results['skipped']++;
+                continue;
             }
             
-            fclose($handle);
-        }
-        
-        return array(
-            'headers' => $headers,
-            'data' => $data
-        );
-    }
-    
-    /**
-     * Preview CSV data
-     */
-    public function preview_csv_data() {
-        $csv_data = get_transient('cdi_csv_data');
-        
-        if (!$csv_data) {
-            throw new Exception(__('No CSV data found. Please upload a file first.', 'craps-data-importer'));
-        }
-        
-        $preview_data = array_slice($csv_data['data'], 0, 10);
-        
-        return array(
-            'headers' => $csv_data['headers'],
-            'preview_data' => $preview_data,
-            'total_rows' => count($csv_data['data'])
-        );
-    }
-    
-    /**
-     * Process import with settings
-     */
-    public function process_import($settings) {
-        $csv_data = get_transient('cdi_csv_data');
-        
-        if (!$csv_data) {
-            throw new Exception(__('No CSV data found. Please upload a file first.', 'craps-data-importer'));
-        }
-        
-        $matcher = $this->get_matcher();
-        $results = array(
-            'total_rows' => count($csv_data['data']),
-            'processed' => 0,
-            'updated' => 0,
-            'queued' => 0,
-            'errors' => array()
-        );
-        
-        foreach ($csv_data['data'] as $index => $row) {
-            try {
-                $casino_name = $this->extract_casino_name($row);
-                
-                if (empty($casino_name)) {
-                    $results['errors'][] = "Row " . ($index + 1) . ": No casino name found";
-                    continue;
-                }
-                
-                $match_result = $matcher->find_casino_match($casino_name, $settings['similarity_threshold']);
-                
-                if ($match_result['casino'] && $match_result['similarity'] >= $settings['similarity_threshold']) {
-                    if ($settings['auto_update']) {
-                        $this->update_casino_data($match_result['casino']->ID, $row, $settings['update_existing']);
-                        $results['updated']++;
-                    } else {
-                        $this->add_to_review_queue($casino_name, $row, 'Manual review required');
-                        $results['queued']++;
-                    }
-                } else {
-                    $this->add_to_review_queue($casino_name, $row, 'No matching casino found');
+            // Determine action for this row
+            $action = 'update'; // Default action
+            if (isset($row_actions[$index])) {
+                $action = $row_actions[$index];
+            }
+            
+            // Process based on action
+            switch ($action) {
+                case 'update':
+                    $result = $this->process_casino_update($casino_name, $row, $settings);
+                    break;
+                case 'skip':
+                    $results['skipped']++;
+                    $results['details'][] = array(
+                        'casino' => $casino_name,
+                        'action' => 'Skipped',
+                        'message' => 'Skipped by user selection'
+                    );
+                    continue 2;
+                case 'review':
+                    $result = $this->add_to_review_queue($casino_name, $row);
                     $results['queued']++;
+                    break;
+                default:
+                    $results['errors']++;
+                    continue 2;
+            }
+            
+            // Add to results
+            if ($result['success']) {
+                if ($result['action'] === 'updated') {
+                    $results['updated']++;
+                } elseif ($result['action'] === 'created') {
+                    $results['created']++;
                 }
-                
-                $results['processed']++;
-                
-            } catch (Exception $e) {
-                $results['errors'][] = "Row " . ($index + 1) . ": " . $e->getMessage();
+                $results['details'][] = $result;
+            } else {
+                $results['errors']++;
+                $results['details'][] = $result;
             }
         }
         
         // Save import history
         $this->save_import_history($csv_data, $results, $settings);
         
-        // Clean up temporary data
-        delete_transient('cdi_csv_data');
-        
-        return $results;
+        // Return results
+        wp_send_json_success(array(
+            'stats' => $results,
+            'message' => sprintf(
+                'Import complete: %d updated, %d created, %d skipped, %d queued for review, %d errors',
+                $results['updated'],
+                $results['created'], 
+                $results['skipped'],
+                $results['queued'],
+                $results['errors']
+            )
+        ));
     }
     
     /**
-     * Extract casino name from CSV row
+     * Process updating a single casino
      */
-    private function extract_casino_name($row) {
-        // Try common column names for casino
-        $possible_names = array(
-            'Downtown Casino',
-            'Casino',
-            'Casino Name',
-            'Name',
-            'Property'
+    private function process_casino_update($casino_name, $csv_row, $settings) {
+        // Find matching casino
+        $match_result = $this->find_casino_match($casino_name);
+        $casino_post = $match_result['casino'];
+        $similarity = $match_result['similarity'];
+        
+        $changes_made = array();
+        $action = 'updated';
+        
+        // If no match found and similarity is too low, create new casino
+        if (!$casino_post || $similarity < $settings['similarity_threshold']) {
+            if ($settings['auto_update']) {
+                $casino_post = $this->create_new_casino($casino_name, $csv_row);
+                $action = 'created';
+                $changes_made[] = 'Created new casino listing';
+            } else {
+                return array(
+                    'success' => false,
+                    'casino' => $casino_name,
+                    'action' => 'error',
+                    'message' => 'No match found and auto-create disabled'
+                );
+            }
+        }
+        
+        if (!$casino_post) {
+            return array(
+                'success' => false,
+                'casino' => $casino_name,
+                'action' => 'error', 
+                'message' => 'Failed to create or find casino'
+            );
+        }
+        
+        // Update fields
+        $field_updates = $this->update_casino_fields($casino_post->ID, $csv_row);
+        $changes_made = array_merge($changes_made, $field_updates);
+        
+        return array(
+            'success' => true,
+            'casino' => $casino_name,
+            'action' => $action,
+            'casino_id' => $casino_post->ID,
+            'similarity' => $similarity,
+            'changes' => $changes_made,
+            'message' => sprintf('%s: %d changes made', ucfirst($action), count($changes_made))
+        );
+    }
+    
+    /**
+     * Update casino fields from CSV data
+     */
+    private function update_casino_fields($casino_id, $csv_row) {
+        $changes = array();
+        
+        // Field mapping from CSV to WordPress meta
+        $field_mapping = array(
+            'Bubble Craps' => 'bubble_craps_minimum',
+            'WeekDay Min' => 'weekday_minimum',
+            'WeekNight Min' => 'weeknight_minimum',
+            'WeekendMin' => 'weekend_minimum',
+            'WeekendnightMin' => 'weekend_night_minimum',
+            'Rewards' => 'rewards_program',
+            'Sidebet' => 'side_bets'
         );
         
-        foreach ($possible_names as $name) {
-            if (isset($row[$name]) && !empty(trim($row[$name]))) {
-                return trim($row[$name]);
-            }
-        }
-        
-        // If no standard column found, try the first non-empty value
-        foreach ($row as $value) {
-            if (!empty(trim($value))) {
-                return trim($value);
-            }
-        }
-        
-        return '';
-    }
-    
-    /**
-     * Update casino data with CSV row data
-     */
-    private function update_casino_data($casino_id, $row_data, $update_existing = true) {
-        $field_mapping = $this->get_field_mapping();
-        
-        foreach ($row_data as $csv_field => $value) {
-            if (empty($value) || !isset($field_mapping[$csv_field])) {
-                continue;
-            }
-            
-            $meta_key = $field_mapping[$csv_field];
-            
-            // Check if we should update existing data
-            if (!$update_existing) {
-                $existing_value = get_post_meta($casino_id, $meta_key, true);
-                if (!empty($existing_value)) {
-                    continue; // Skip if field already has data
+        foreach ($field_mapping as $csv_field => $meta_key) {
+            if (isset($csv_row[$csv_field]) && !empty(trim($csv_row[$csv_field]))) {
+                $new_value = trim($csv_row[$csv_field]);
+                $current_value = get_post_meta($casino_id, $meta_key, true);
+                
+                // Only update if different
+                if ($current_value !== $new_value) {
+                    update_post_meta($casino_id, $meta_key, $new_value);
+                    $changes[] = sprintf('Updated %s: "%s" → "%s"', 
+                        $this->get_field_display_name($csv_field), 
+                        $current_value ? $current_value : 'Empty',
+                        $new_value
+                    );
                 }
             }
-            
-            update_post_meta($casino_id, $meta_key, sanitize_text_field($value));
         }
+        
+        // Handle Bubble Craps status categories
+        if (isset($csv_row['Bubble Craps'])) {
+            $bc_value = trim($csv_row['Bubble Craps']);
+            $category_changes = $this->update_bubble_craps_categories($casino_id, $bc_value);
+            $changes = array_merge($changes, $category_changes);
+        }
+        
+        return $changes;
     }
     
     /**
-     * Get field mapping for CSV columns to WordPress meta fields
+     * Update Bubble Craps categories based on CSV value
      */
-    private function get_field_mapping() {
-        return array(
-            'WeekDay Min' => '_weekday_min',
-            'WeekNight Min' => '_weeknight_min',
-            'WeekendMin' => '_weekend_min',
-            'WeekendnightMin' => '_weekend_night_min',
-            'MaxOdds' => '_max_odds',
-            'Field Pay' => '_field_pay',
-            'Sidebet' => '_sidebet',
-            'Dividers/Per Side' => '_dividers_per_side',
-            'Rewards' => '_rewards',
-            'Crapless' => '_crapless',
-            'Bubble Craps' => '_bubble_craps',
-            'Roll To Win' => '_roll_to_win',
-            'RTW Mins' => '_rtw_mins',
-            'Comments' => '_comments'
+    private function update_bubble_craps_categories($casino_id, $bc_value) {
+        $changes = array();
+        
+        // Determine if casino has bubble craps
+        $has_bubble_craps = !empty($bc_value) && 
+                           strtolower($bc_value) !== 'no' && 
+                           strtolower($bc_value) !== 'none' &&
+                           strtolower($bc_value) !== 'removed';
+        
+        // Get current categories
+        $current_categories = wp_get_post_terms($casino_id, 'at_biz_dir-categories', array('fields' => 'slugs'));
+        if (is_wp_error($current_categories)) {
+            $current_categories = array();
+        }
+        
+        $new_categories = $current_categories;
+        
+        // Remove existing bubble craps categories
+        $bc_categories = array('has-bubble-craps', 'no-bubble-craps');
+        $new_categories = array_diff($new_categories, $bc_categories);
+        
+        // Add appropriate bubble craps category
+        if ($has_bubble_craps) {
+            $new_categories[] = 'has-bubble-craps';
+            $changes[] = 'Added "Has Bubble Craps" category';
+        } else {
+            $new_categories[] = 'no-bubble-craps';
+            $changes[] = 'Added "No Bubble Craps" category';
+        }
+        
+        // Update categories
+        $result = wp_set_post_terms($casino_id, $new_categories, 'at_biz_dir-categories');
+        if (is_wp_error($result)) {
+            error_log('CDI: Failed to update categories for casino ' . $casino_id . ': ' . $result->get_error_message());
+        }
+        
+        return $changes;
+    }
+    
+    /**
+     * Create new casino post
+     */
+    private function create_new_casino($casino_name, $csv_row) {
+        $post_data = array(
+            'post_title' => $casino_name,
+            'post_content' => 'Auto-imported casino from CSV data.',
+            'post_status' => 'publish',
+            'post_type' => 'at_biz_dir',
+            'post_author' => get_current_user_id()
         );
+        
+        $post_id = wp_insert_post($post_data);
+        
+        if (is_wp_error($post_id)) {
+            error_log('CDI: Failed to create casino: ' . $post_id->get_error_message());
+            return null;
+        }
+        
+        // Set basic meta fields
+        update_post_meta($post_id, '_phone', '');
+        update_post_meta($post_id, '_website', '');
+        update_post_meta($post_id, '_address', '');
+        
+        // Add default category
+        wp_set_post_terms($post_id, array('casino'), 'at_biz_dir-categories');
+        
+        return get_post($post_id);
     }
     
     /**
-     * Add item to review queue
+     * Add casino to review queue
      */
-    private function add_to_review_queue($casino_name, $row_data, $reason) {
+    private function add_to_review_queue($casino_name, $csv_row) {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'cdi_review_queue';
         
-        $wpdb->insert(
+        $result = $wpdb->insert(
             $table_name,
             array(
                 'casino_name' => $casino_name,
-                'csv_data' => wp_json_encode($row_data),
-                'reason' => $reason,
-                'status' => 'pending'
+                'csv_data' => json_encode($csv_row),
+                'status' => 'pending',
+                'created_date' => current_time('mysql')
             ),
             array('%s', '%s', '%s', '%s')
         );
-    }
-    
-    /**
-     * Resolve queue item
-     */
-    public function resolve_queue_item($queue_id, $action, $casino_id = 0) {
-        global $wpdb;
         
-        $table_name = $wpdb->prefix . 'cdi_review_queue';
-        
-        $queue_item = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table_name WHERE id = %d",
-            $queue_id
-        ));
-        
-        if (!$queue_item) {
-            throw new Exception(__('Queue item not found', 'craps-data-importer'));
+        if ($result === false) {
+            return array(
+                'success' => false,
+                'casino' => $casino_name,
+                'action' => 'error',
+                'message' => 'Failed to add to review queue'
+            );
         }
         
-        switch ($action) {
-            case 'accept':
-                if ($casino_id && $casino_id > 0) {
-                    $row_data = json_decode($queue_item->csv_data, true);
-                    $this->update_casino_data($casino_id, $row_data, true);
-                    
-                    $wpdb->update(
-                        $table_name,
-                        array('status' => 'resolved'),
-                        array('id' => $queue_id),
-                        array('%s'),
-                        array('%d')
-                    );
-                    
-                    return array('success' => true, 'message' => 'Item resolved and casino updated');
-                } else {
-                    throw new Exception(__('Casino ID required for acceptance', 'craps-data-importer'));
-                }
-                break;
-                
-            case 'skip':
-                $wpdb->update(
-                    $table_name,
-                    array('status' => 'skipped'),
-                    array('id' => $queue_id),
-                    array('%s'),
-                    array('%d')
-                );
-                
-                return array('success' => true, 'message' => 'Item skipped');
-                break;
-                
-            default:
-                throw new Exception(__('Invalid action', 'craps-data-importer'));
-        }
+        return array(
+            'success' => true,
+            'casino' => $casino_name,
+            'action' => 'queued',
+            'message' => 'Added to manual review queue'
+        );
     }
     
     /**
@@ -334,14 +326,103 @@ class CDI_Processor {
         $wpdb->insert(
             $table_name,
             array(
-                'filename' => 'upload-' . date('Y-m-d-H-i-s') . '.csv',
-                'total_rows' => $results['total_rows'],
-                'processed_rows' => $results['processed'],
+                'filename' => 'CSV Import',
+                'total_rows' => count($csv_data['data']),
+                'processed_rows' => $results['updated'] + $results['created'] + $results['skipped'],
                 'updated_casinos' => $results['updated'],
                 'queued_items' => $results['queued'],
-                'import_settings' => wp_json_encode($settings)
+                'import_settings' => json_encode($settings),
+                'import_date' => current_time('mysql')
             ),
-            array('%s', '%d', '%d', '%d', '%d', '%s')
+            array('%s', '%d', '%d', '%d', '%d', '%s', '%s')
         );
+    }
+    
+    /**
+     * Find matching casino (same as admin class)
+     */
+    private function find_casino_match($casino_name) {
+        if (empty($casino_name)) {
+            return array('casino' => null, 'similarity' => 0);
+        }
+        
+        // Clean the casino name for better matching
+        $clean_name = $this->clean_casino_name($casino_name);
+        
+        // Try exact match first
+        $exact_match = get_posts(array(
+            'post_type' => 'at_biz_dir',
+            'post_status' => 'publish',
+            'title' => $casino_name,
+            'numberposts' => 1
+        ));
+        
+        if (!empty($exact_match)) {
+            return array('casino' => $exact_match[0], 'similarity' => 100);
+        }
+        
+        // Try fuzzy search
+        $search_posts = get_posts(array(
+            'post_type' => 'at_biz_dir',
+            'post_status' => 'publish',
+            's' => $clean_name,
+            'numberposts' => 20
+        ));
+        
+        $best_match = null;
+        $best_similarity = 0;
+        
+        foreach ($search_posts as $post) {
+            $similarity = $this->calculate_similarity($clean_name, $this->clean_casino_name($post->post_title));
+            
+            if ($similarity > $best_similarity) {
+                $best_similarity = $similarity;
+                $best_match = $post;
+            }
+        }
+        
+        return array('casino' => $best_match, 'similarity' => round($best_similarity));
+    }
+    
+    /**
+     * Helper methods (same as admin class)
+     */
+    private function clean_casino_name($name) {
+        $name = strtolower(trim($name));
+        $remove_words = array('casino', 'hotel', 'resort', 'las vegas', 'the ', ' the', '&', 'and');
+        $name = str_replace($remove_words, '', $name);
+        return preg_replace('/\s+/', ' ', trim($name));
+    }
+    
+    private function calculate_similarity($str1, $str2) {
+        if (empty($str1) || empty($str2)) {
+            return 0;
+        }
+        $similarity = 0;
+        similar_text(strtolower($str1), strtolower($str2), $similarity);
+        return $similarity;
+    }
+    
+    private function extract_casino_name_from_row($row) {
+        foreach ($row as $value) {
+            if (!empty(trim($value))) {
+                return trim($value);
+            }
+        }
+        return 'Unknown Casino';
+    }
+    
+    private function get_field_display_name($csv_field) {
+        $display_names = array(
+            'Bubble Craps' => 'Bubble Craps Status',
+            'WeekDay Min' => 'Weekday Minimum',
+            'WeekNight Min' => 'Weeknight Minimum',
+            'WeekendMin' => 'Weekend Minimum', 
+            'WeekendnightMin' => 'Weekend Night Minimum',
+            'Rewards' => 'Rewards Program',
+            'Sidebet' => 'Side Bets Available'
+        );
+        
+        return isset($display_names[$csv_field]) ? $display_names[$csv_field] : $csv_field;
     }
 }
