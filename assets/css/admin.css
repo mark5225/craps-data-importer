@@ -1,4 +1,5 @@
-/* Craps Data Importer Admin Styles */
+/* COMPLETE admin.css file for Craps Data Importer */
+/* Enhanced with investigation modal and improved styling */
 
 /* Grid Layout */
 .cdi-grid {
@@ -46,7 +47,377 @@
     border-radius: 10px;
 }
 
-/* Modal Styles */
+/* Investigation Modal Styles */
+#cdi-investigate-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cdi-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+}
+
+.cdi-modal-content {
+    position: relative;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 800px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: cdiModalSlideIn 0.3s ease-out;
+}
+
+@keyframes cdiModalSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.cdi-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #ddd;
+    background: #f8f9fa;
+}
+
+.cdi-modal-header h2 {
+    margin: 0;
+    color: #1d3557;
+    font-size: 18px;
+}
+
+.cdi-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+.cdi-modal-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #ddd;
+    background: #f8f9fa;
+    text-align: right;
+}
+
+/* Source Info Section */
+.cdi-source-info {
+    background: #e3f2fd;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border-left: 4px solid #1976d2;
+}
+
+.cdi-source-info h3 {
+    margin: 0 0 10px 0;
+    color: #1976d2;
+    font-size: 16px;
+}
+
+/* Data Table Enhancements */
+#cdi-modal-data-table {
+    font-size: 13px;
+}
+
+#cdi-modal-data-table th {
+    background: #f1f1f1;
+    font-weight: 600;
+    color: #333;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+#cdi-modal-data-table td {
+    padding: 8px 10px;
+    vertical-align: top;
+    word-break: break-word;
+}
+
+/* Highlighted relevant rows */
+#cdi-modal-data-table tr.relevant-field {
+    background: #f8f9fa;
+    border-left: 3px solid #007cba;
+}
+
+/* Comments Section */
+.cdi-comments-section {
+    background: #fff3cd;
+    padding: 15px;
+    border-radius: 6px;
+    border-left: 4px solid #ffc107;
+}
+
+.cdi-comments-section h3 {
+    margin: 0 0 10px 0;
+    color: #856404;
+    font-size: 16px;
+}
+
+#cdi-comments-content {
+    background: white;
+    padding: 12px;
+    border-radius: 4px;
+    border: 1px solid #f0ad4e;
+    font-family: monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Enhanced Bulk Actions */
+.cdi-bulk-actions-enhanced {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #e0e0e0;
+}
+
+.cdi-bulk-actions-enhanced h4 {
+    color: #1d3557;
+    margin: 0 0 10px 0;
+    font-size: 14px;
+}
+
+/* Investigate Button Styling */
+.cdi-match-item .button.button-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    height: auto;
+    line-height: 1.2;
+    border-radius: 3px;
+    background: #0073aa;
+    color: white;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.cdi-match-item .button.button-small:hover {
+    background: #005a87;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Enhanced Row Selection Styling */
+.cdi-row-action {
+    min-width: 140px;
+    font-size: 13px;
+}
+
+.cdi-row-action option[value="update"] {
+    color: #155724;
+    background: #d4edda;
+}
+
+.cdi-row-action option[value="review"] {
+    color: #856404;
+    background: #fff3cd;
+}
+
+.cdi-row-action option[value="skip"] {
+    color: #721c24;
+    background: #f8d7da;
+}
+
+/* Match Item Enhancements */
+.cdi-match-item {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background: white;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.cdi-match-item:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-color: #007cba;
+}
+
+.cdi-match-item[data-confidence="high"] {
+    border-left: 4px solid #28a745;
+}
+
+.cdi-match-item[data-confidence="medium"] {
+    border-left: 4px solid #ffc107;
+}
+
+.cdi-match-item[data-confidence="low"] {
+    border-left: 4px solid #dc3545;
+}
+
+/* Confidence Badges */
+.cdi-match-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cdi-match-badge.high {
+    background: #28a745;
+    color: white;
+}
+
+.cdi-match-badge.medium {
+    background: #ffc107;
+    color: #333;
+}
+
+.cdi-match-badge.low {
+    background: #dc3545;
+    color: white;
+}
+
+/* Action Status Indicators */
+.cdi-action-add {
+    color: #155724;
+    background: #d4edda;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cdi-action-update {
+    background: #fff3cd;
+    color: #856404;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cdi-action-no-change {
+    color: #856404;
+    background: #fff3cd;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.cdi-action-clear {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Enhanced Smart Controls */
+.cdi-smart-controls {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+}
+
+.cdi-smart-controls button {
+    transition: all 0.2s ease;
+}
+
+.cdi-smart-controls button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* First Column Name Display */
+.cdi-import-summary .cdi-source-indicator {
+    background: #e3f2fd;
+    padding: 12px;
+    border-radius: 6px;
+    border-left: 4px solid #1976d2;
+    margin-bottom: 15px;
+    font-size: 14px;
+}
+
+.cdi-source-indicator strong {
+    color: #1976d2;
+}
+
+/* Copy Data Button */
+.cdi-modal-footer .button {
+    margin-left: 8px;
+}
+
+/* Future Features Placeholder Styling */
+.cdi-future-features {
+    background: #e8f4f8;
+    border: 1px solid #bee5eb;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.cdi-future-features h4 {
+    color: #0c5460;
+    margin: 0 0 8px 0;
+    font-size: 14px;
+}
+
+.cdi-future-features .button {
+    font-size: 11px;
+    padding: 4px 8px;
+    height: auto;
+    line-height: 1.2;
+    margin: 2px;
+    transition: all 0.2s ease;
+}
+
+.cdi-future-features .button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background: #f8f9fa;
+}
+
+/* Enhanced confidence indicators */
+.cdi-match-item[data-confidence] {
+    position: relative;
+}
+
+.cdi-match-item[data-confidence]:before {
+    content: attr(data-confidence) "% match";
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+/* Legacy Modal Styles */
 .cdi-modal {
     position: fixed;
     top: 0;
@@ -60,35 +431,6 @@
 
 .cdi-modal.active {
     display: block;
-}
-
-.cdi-modal-content {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: white;
-    border-radius: 8px;
-    width: 600px;
-    max-width: 90vw;
-    max-height: 80vh;
-    overflow: auto;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-
-.cdi-modal-header {
-    background: #1d3557;
-    color: white;
-    padding: 15px 20px;
-    border-radius: 8px 8px 0 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.cdi-modal-header h3 {
-    margin: 0;
-    color: white;
 }
 
 .cdi-modal-close {
@@ -109,10 +451,6 @@
 
 .cdi-modal-close:hover {
     background-color: rgba(255,255,255,0.2);
-}
-
-.cdi-modal-body {
-    padding: 20px;
 }
 
 .cdi-modal-actions {
@@ -299,10 +637,27 @@
     color: #0c5460;
 }
 
+.cdi-notice.notice-success {
+    border-left-color: #28a745;
+}
+
+.cdi-notice.notice-info {
+    border-left-color: #17a2b8;
+}
+
+.cdi-notice.notice-warning {
+    border-left-color: #ffc107;
+}
+
+.cdi-notice.notice-error {
+    border-left-color: #dc3545;
+}
+
 /* Loading States */
 .cdi-loading {
     opacity: 0.6;
     pointer-events: none;
+    position: relative;
 }
 
 .cdi-loading::after {
@@ -313,10 +668,16 @@
     width: 20px;
     height: 20px;
     margin: -10px 0 0 -10px;
-    border: 2px solid #f3f3f3;
-    border-top: 2px solid #2196f3;
+    border: 2px solid #ccc;
+    border-top-color: #007cba;
     border-radius: 50%;
-    animation: cdi-spin 1s linear infinite;
+    animation: cdiSpin 1s linear infinite;
+}
+
+@keyframes cdiSpin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes cdi-spin {
@@ -324,88 +685,13 @@
     100% { transform: rotate(360deg); }
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-    .cdi-grid {
-        grid-template-columns: 1fr;
-        gap: 15px;
-    }
-    
-    .cdi-modal-content {
-        width: 95vw;
-        margin: 10px;
-    }
-    
-    .cdi-results-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Utility Classes */
-.cdi-hidden {
-    display: none !important;
-}
-
-.cdi-text-center {
-    text-align: center;
-}
-
-.cdi-mt-20 {
-    margin-top: 20px;
-}
-
-.cdi-mb-20 {
-    margin-bottom: 20px;
-}
-
 /* Match Analysis Styles */
 .cdi-preview-analysis {
     margin: 20px 0;
 }
 
-.cdi-match-item {
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    padding: 20px;
-    background: #fafafa;
-}
-
-.cdi-match-item h4 {
-    margin: 0 0 15px 0;
-    color: #1d3557;
-    font-size: 16px;
-}
-
 .cdi-match-info {
     margin-bottom: 15px;
-}
-
-.cdi-match-badge {
-    display: inline-block;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 10px;
-}
-
-.cdi-match-badge.high {
-    background: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-}
-
-.cdi-match-badge.medium {
-    background: #fff3cd;
-    color: #856404;
-    border: 1px solid #ffeaa7;
-}
-
-.cdi-match-badge.no-match {
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f1b0b7;
 }
 
 .cdi-changes-table {
@@ -431,24 +717,6 @@
     padding: 10px;
     border-bottom: 1px solid #eee;
     vertical-align: top;
-}
-
-.cdi-action-add {
-    background: #d4edda;
-    color: #155724;
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-}
-
-.cdi-action-update {
-    background: #fff3cd;
-    color: #856404;
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
 }
 
 .cdi-no-changes {
@@ -552,11 +820,92 @@
     font-size: 13px;
 }
 
-.cdi-action-clear {
-    background: #f8d7da;
-    color: #721c24;
-    padding: 3px 8px;
-    border-radius: 12px;
+/* Keyboard Shortcut Hints */
+.cdi-keyboard-hints {
     font-size: 11px;
-    font-weight: 600;
+    color: #666;
+    font-style: italic;
+    margin-top: 5px;
+}
+
+.cdi-keyboard-hints kbd {
+    background: #f1f1f1;
+    border: 1px solid #ccc;
+    border-radius: 2px;
+    padding: 1px 3px;
+    font-size: 10px;
+}
+
+/* Hidden row data scripts */
+.cdi-row-data {
+    display: none !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .cdi-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .cdi-modal-content {
+        width: 95vw;
+        height: 95vh;
+        margin: 2.5vh auto;
+    }
+    
+    .cdi-modal-body {
+        padding: 15px;
+    }
+    
+    .cdi-bulk-actions-enhanced div {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .cdi-bulk-actions-enhanced button {
+        margin: 2px 0;
+        width: 100%;
+    }
+    
+    .cdi-smart-controls > div {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .cdi-smart-controls label,
+    .cdi-smart-controls select,
+    .cdi-smart-controls button {
+        margin: 2px 0;
+        width: 100%;
+    }
+    
+    .cdi-results-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Utility Classes */
+.cdi-hidden {
+    display: none !important;
+}
+
+.cdi-text-center {
+    text-align: center;
+}
+
+.cdi-mt-20 {
+    margin-top: 20px;
+}
+
+.cdi-mb-20 {
+    margin-bottom: 20px;
+}
+
+/* Smooth transitions for all interactive elements */
+.cdi-match-item,
+.cdi-row-action,
+button,
+.cdi-modal-content {
+    transition: all 0.2s ease;
 }
