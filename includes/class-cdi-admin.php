@@ -1,13 +1,4 @@
-<div class="tablenav top">
-                    <div class="alignleft actions">
-                        <button type="button" id="select-all-bubble" class="button">Select All Bubble Craps</button>
-                        <button type="button" id="select-all-table" class="button">Select All Table Only</button>
-                        <button type="button" id="select-all-updates" class="button">Select All Changes</button>
-                        <button type="button" id="deselect-all" class="button">Deselect All</button>
-                    </div>
-                    <div class="alignright actions">
-                        <button type="submit" class="button button-primary button-large">
-                            <?php _e('Process Selecte<?php
+<?php
 /**
  * CDI_Admin - Admin interface for Craps Data Importer
  */
@@ -561,7 +552,6 @@ class CDI_Admin {
             <?php endif; ?>
         </div>
         <?php
-    }
     }
     
     /**
