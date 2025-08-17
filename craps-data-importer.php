@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('CDI_VERSION', '1.0.2');
+define('CDI_VERSION', '1.0.3');
 define('CDI_PLUGIN_FILE', __FILE__);
 define('CDI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CDI_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -60,14 +60,12 @@ class CrapsDataImporter {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
         add_action('admin_notices', array($this, 'admin_notices'));
         
-        // Only add AJAX handlers if dependencies are loaded
-        if ($this->dependencies_loaded) {
-            add_action('wp_ajax_cdi_upload_csv', array($this, 'handle_ajax_upload'));
-            add_action('wp_ajax_cdi_preview_data', array($this, 'handle_ajax_preview'));
-            add_action('wp_ajax_cdi_process_import', array($this, 'handle_ajax_import'));
-            add_action('wp_ajax_cdi_search_casino', array($this, 'handle_ajax_search'));
-            add_action('wp_ajax_cdi_resolve_queue_item', array($this, 'handle_ajax_resolve'));
-        }
+        // Always add AJAX handlers - we'll check dependencies inside the methods
+        add_action('wp_ajax_cdi_upload_csv', array($this, 'handle_ajax_upload'));
+        add_action('wp_ajax_cdi_preview_data', array($this, 'handle_ajax_preview'));
+        add_action('wp_ajax_cdi_process_import', array($this, 'handle_ajax_import'));
+        add_action('wp_ajax_cdi_search_casino', array($this, 'handle_ajax_search'));
+        add_action('wp_ajax_cdi_resolve_queue_item', array($this, 'handle_ajax_resolve'));
         
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -289,29 +287,87 @@ class CrapsDataImporter {
                     'complete' => __('Import complete', 'craps-data-importer')
                 )
             ));
+        } else {
+            // Fallback: Add inline JavaScript if file doesn't exist
+            add_action('admin_footer', array($this, 'add_inline_js'));
         }
+    }
+    
+    /**
+     * Add inline JavaScript as fallback
+     */
+    public function add_inline_js() {
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            console.log('CDI Inline JS loaded');
+            
+            $('#cdi-upload-form').on('submit', function(e) {
+                e.preventDefault();
+                console.log('Form submitted');
+                
+                var formData = new FormData(this);
+                formData.append('action', 'cdi_upload_csv');
+                formData.append('nonce', '<?php echo wp_create_nonce('cdi_nonce'); ?>');
+                
+                $.ajax({
+                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        console.log('Response:', response);
+                        if (response.success && response.data.redirect) {
+                            window.location.href = response.data.redirect;
+                        } else {
+                            alert('Error: ' + (response.data ? response.data.message : 'Unknown error'));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('Error:', status, error);
+                        alert('Upload failed: ' + error);
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
     }
     
     /**
      * Handle CSV upload via AJAX
      */
     public function handle_ajax_upload() {
+        // Log that the handler was called
+        error_log('CDI: AJAX upload handler called');
+        
         if (!$this->dependencies_loaded) {
+            error_log('CDI: Dependencies not loaded');
             wp_send_json_error(array('message' => 'Plugin dependencies not loaded'));
             return;
         }
         
-        check_ajax_referer('cdi_nonce', 'nonce');
+        // Check nonce
+        if (!check_ajax_referer('cdi_nonce', 'nonce', false)) {
+            error_log('CDI: Nonce verification failed');
+            wp_send_json_error(array('message' => 'Security check failed'));
+            return;
+        }
         
         if (!current_user_can('manage_options')) {
+            error_log('CDI: User permission check failed');
             wp_send_json_error(array('message' => 'Unauthorized access'));
             return;
         }
         
         try {
+            error_log('CDI: Calling processor handle_csv_upload');
             $result = $this->processor->handle_csv_upload();
+            error_log('CDI: Processor returned: ' . print_r($result, true));
             wp_send_json_success($result);
         } catch (Exception $e) {
+            error_log('CDI: Exception in upload: ' . $e->getMessage());
             wp_send_json_error(array('message' => $e->getMessage()));
         }
     }

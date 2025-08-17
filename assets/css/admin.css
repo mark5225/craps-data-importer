@@ -358,36 +358,205 @@
     margin-bottom: 20px;
 }
 
-/* Button Enhancements */
-.button.cdi-primary {
-    background: #2196f3;
-    border-color: #1976d2;
-    color: white;
+/* Match Analysis Styles */
+.cdi-preview-analysis {
+    margin: 20px 0;
 }
 
-.button.cdi-success {
-    background: #4CAF50;
-    border-color: #45a049;
-    color: white;
+.cdi-match-item {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: #fafafa;
 }
 
-.button.cdi-danger {
-    background: #f44336;
-    border-color: #d32f2f;
-    color: white;
+.cdi-match-item h4 {
+    margin: 0 0 15px 0;
+    color: #1d3557;
+    font-size: 16px;
 }
 
-/* Table Enhancements */
-.wp-list-table.cdi-table th {
+.cdi-match-info {
+    margin-bottom: 15px;
+}
+
+.cdi-match-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.cdi-match-badge.high {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.cdi-match-badge.medium {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.cdi-match-badge.no-match {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f1b0b7;
+}
+
+.cdi-changes-table {
+    margin-top: 15px;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #ddd;
+}
+
+.cdi-changes-table table {
+    margin: 0;
+    border: none;
+}
+
+.cdi-changes-table th {
     background: #f8f9fa;
+    font-weight: 600;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+.cdi-changes-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+}
+
+.cdi-action-add {
+    background: #d4edda;
+    color: #155724;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
-.wp-list-table.cdi-table .similarity-badge {
-    background: #e3f2fd;
-    color: #1976d2;
-    padding: 2px 8px;
+.cdi-action-update {
+    background: #fff3cd;
+    color: #856404;
+    padding: 3px 8px;
     border-radius: 12px;
     font-size: 11px;
+    font-weight: 600;
+}
+
+.cdi-no-changes {
+    color: #666;
+    font-style: italic;
+    margin: 10px 0;
+}
+
+.cdi-queue-note {
+    color: #856404;
+    font-size: 13px;
+    margin: 5px 0 0 0;
+}
+
+/* Preview Summary Styles */
+.cdi-preview-summary {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.cdi-preview-summary h3 {
+    margin: 0 0 15px 0;
+    color: #1d3557;
+}
+
+.cdi-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 15px;
+}
+
+.cdi-summary-item {
+    text-align: center;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.cdi-summary-number {
+    display: block;
+    font-size: 24px;
     font-weight: bold;
+    color: #2196f3;
+    margin-bottom: 5px;
+}
+
+.cdi-casino-details {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #666;
+}
+
+.cdi-casino-details a {
+    color: #2196f3;
+    text-decoration: none;
+}
+
+.cdi-casino-details a:hover {
+    text-decoration: underline;
+}
+
+.cdi-changes-section {
+    margin: 15px 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.cdi-changes-section h5 {
+    margin: 0;
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d3557;
+}
+
+.cdi-changes-section table {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+}
+
+.cdi-changes-section th {
+    background: #f8f9fa;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 12px;
+}
+
+.cdi-changes-section td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+    font-size: 13px;
+}
+
+.cdi-action-clear {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
 }
