@@ -78,21 +78,125 @@ class CDI_Processor {
     }
     
     /**
-     * Preview CSV data
+     * Prepare data for review interface
      */
-    public function preview_csv_data() {
-        $csv_data = get_transient('cdi_csv_data');
+    public function prepare_review_data($csv_rows) {
+        $matcher = new CDI_Matcher();
+        $review_data = array();
         
-        if (!$csv_data) {
-            throw new Exception('No CSV data found. Please upload a file first.');
+        // Debug: Log the first row to see what columns we have
+        if (!empty($csv_rows)) {
+            $first_row = $csv_rows[0];
+            error_log('CDI Debug: CSV columns available: ' . implode(', ', array_keys($first_row)));
         }
         
-        return array(
-            'headers' => $csv_data['headers'],
-            'sample_data' => array_slice($csv_data['data'], 0, 5),
-            'total_rows' => count($csv_data['data']),
-            'filename' => $csv_data['filename']
+        // Define field mapping for relevant fields only
+        $field_mapping = array(
+            'WeekDay Min' => array('meta_key' => '_weekday_min', 'label' => 'Weekday Minimum'),
+            'WeekNight Min' => array('meta_key' => '_weeknight_min', 'label' => 'Weeknight Minimum'),
+            'WeekendMin' => array('meta_key' => '_weekend_min', 'label' => 'Weekend Minimum'),
+            'WeekendnightMin' => array('meta_key' => '_weekend_night_min', 'label' => 'Weekend Night Minimum'),
+            'MaxOdds' => array('meta_key' => '_max_odds', 'label' => 'Maximum Odds'),
+            'Field Pay' => array('meta_key' => '_field_pay', 'label' => 'Field Pay'),
+            'Sidebet' => array('meta_key' => '_sidebet', 'label' => 'Side Bets'),
+            'Dividers/Per Side' => array('meta_key' => '_dividers_per_side', 'label' => 'Dividers Per Side'),
+            'Rewards' => array('meta_key' => '_rewards', 'label' => 'Rewards Program'),
+            'Crapless' => array('meta_key' => '_crapless', 'label' => 'Crapless Craps'),
+            'Bubble Craps' => array('meta_key' => '_bubble_craps', 'label' => 'Bubble Craps'),
+            'Roll To Win' => array('meta_key' => '_roll_to_win', 'label' => 'Roll to Win'),
+            'RTW Mins' => array('meta_key' => '_rtw_mins', 'label' => 'RTW Minimums'),
+            'Comments' => array('meta_key' => '_comments', 'label' => 'Comments')
         );
+        
+        foreach ($csv_rows as $index => $row) {
+            $casino_name = $this->extract_casino_name($row);
+            $casino_id = null;
+            $changes = array();
+            $mapped_data = array();
+            
+            // Debug: Log what casino name we extracted
+            error_log("CDI Debug: Row {$index} - Extracted casino name: '{$casino_name}'");
+            
+            if (!empty($casino_name)) {
+                // Try to find existing casino
+                $casino_id = $matcher->find_casino_by_name($casino_name);
+                
+                // Debug: Log matching result
+                error_log("CDI Debug: Casino '{$casino_name}' " . ($casino_id ? "matched to ID {$casino_id}" : "not matched"));
+                
+                // Map only relevant data
+                foreach ($field_mapping as $csv_column => $field_info) {
+                    if (isset($row[$csv_column]) && !empty(trim($row[$csv_column]))) {
+                        $new_value = $this->clean_field_value($csv_column, trim($row[$csv_column]));
+                        $mapped_data[$field_info['label']] = $new_value;
+                        
+                        if ($casino_id) {
+                            // Compare with existing value
+                            $current_value = get_post_meta($casino_id, $field_info['meta_key'], true);
+                            $current_value = $this->clean_field_value($csv_column, $current_value);
+                            
+                            if ($current_value !== $new_value) {
+                                $change_type = empty($current_value) ? 'add' : 'update';
+                                $changes[$field_info['meta_key']] = array(
+                                    'label' => $field_info['label'],
+                                    'current' => $current_value,
+                                    'new' => $new_value,
+                                    'type' => $change_type
+                                );
+                            }
+                        }
+                    }
+                }
+                
+                // Debug: Log mapped data
+                error_log("CDI Debug: Mapped data for '{$casino_name}': " . print_r($mapped_data, true));
+            }
+            
+            $review_data[] = array(
+                'casino_name' => $casino_name,
+                'casino_id' => $casino_id,
+                'changes' => $changes,
+                'mapped_data' => $mapped_data,
+                'raw_row' => $row
+            );
+        }
+        
+        return $review_data;
+    }
+    
+    /**
+     * Clean field values for comparison
+     */
+    private function clean_field_value($field_type, $value) {
+        if (empty($value)) {
+            return '';
+        }
+        
+        $value = trim($value);
+        
+        // Clean specific field types
+        switch ($field_type) {
+            case 'WeekDay Min':
+            case 'WeekNight Min':
+            case 'WeekendMin':
+            case 'WeekendnightMin':
+            case 'RTW Mins':
+                // Parse minimum bet values
+                return cdi_parse_min_bet($value);
+                
+            case 'MaxOdds':
+                // Parse odds values
+                return cdi_parse_odds($value);
+                
+            case 'Crapless':
+            case 'Bubble Craps':
+            case 'Roll To Win':
+                // Parse boolean values
+                return cdi_parse_boolean($value);
+                
+            default:
+                return sanitize_text_field($value);
+        }
     }
     
     /**
@@ -112,11 +216,24 @@ class CDI_Processor {
             return;
         }
         
-        // Get form selections (if any)
-        $row_actions = isset($_POST['row_actions']) ? $_POST['row_actions'] : array();
+        // Get selected rows to process
+        $selected_rows = isset($_POST['process_row']) ? $_POST['process_row'] : array();
+        
+        if (empty($selected_rows)) {
+            wp_send_json_error('No rows selected for processing.');
+            return;
+        }
         
         try {
-            $results = $this->process_csv_data($csv_data['data'], $row_actions);
+            // Filter CSV data to only selected rows
+            $filtered_data = array();
+            foreach ($selected_rows as $row_index) {
+                if (isset($csv_data['data'][$row_index])) {
+                    $filtered_data[] = $csv_data['data'][$row_index];
+                }
+            }
+            
+            $results = $this->process_csv_data($filtered_data, array());
             
             // Log the import
             $this->log_import_results($csv_data['filename'], $results);
@@ -202,19 +319,31 @@ class CDI_Processor {
      * Extract casino name from CSV row
      */
     private function extract_casino_name($row) {
-        // Try different possible column names for casino
+        // Try different possible column names for casino (more comprehensive list)
         $possible_names = array(
-            'Downtown Casino',
+            'Strip Casino',           // For LV Strip CSV
+            'Downtown Casino',        // For Downtown CSV  
             'Casino',
             'Casino Name',
             'Name',
             'Property',
-            'Location'
+            'Location',
+            'Venue',
+            'Site',
+            'Property Name',
+            'Business Name'
         );
         
         foreach ($possible_names as $column_name) {
             if (isset($row[$column_name]) && !empty(trim($row[$column_name]))) {
                 return trim($row[$column_name]);
+            }
+        }
+        
+        // If no casino name column found, try the first column that has actual data
+        foreach ($row as $key => $value) {
+            if (!empty(trim($value)) && !is_numeric($value)) {
+                return trim($value);
             }
         }
         

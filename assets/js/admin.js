@@ -37,8 +37,11 @@ jQuery(document).ready(function($) {
         },
         
         // Handle file upload
-        handleFileUpload: function(form) {
+        handleFileUpload: function(e) {
+            e.preventDefault();  // FIXED: Prevent form submission
+            
             var self = this;
+            var form = e.target;  // FIXED: Get form from event
             var $form = $(form);
             
             console.log('CDI Admin: Starting file upload...');

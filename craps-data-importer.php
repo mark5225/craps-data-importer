@@ -161,7 +161,7 @@ class CrapsDataImporter {
                 __('Review Queue', 'craps-data-importer'),
                 'manage_options',
                 'craps-review-queue',
-                array($this->admin, 'render_review_page')
+                array($this->admin, 'render_review_queue_page')
             );
             
             add_submenu_page(
