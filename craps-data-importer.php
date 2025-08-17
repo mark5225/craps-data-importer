@@ -276,63 +276,52 @@ class CrapsDataImporter {
                 true
             );
             
-            // Localize script
-            wp_localize_script('cdi-admin-script', 'cdiAjax', array(
+            // Localize script with AJAX data
+            wp_localize_script('cdi-admin-script', 'cdi_ajax', array(
                 'ajaxurl' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('cdi_nonce'),
                 'strings' => array(
-                    'upload_success' => __('File uploaded successfully', 'craps-data-importer'),
-                    'upload_error' => __('Upload failed', 'craps-data-importer'),
+                    'uploading' => __('Uploading...', 'craps-data-importer'),
                     'processing' => __('Processing...', 'craps-data-importer'),
-                    'complete' => __('Import complete', 'craps-data-importer')
+                    'error' => __('Error:', 'craps-data-importer'),
+                    'success' => __('Success!', 'craps-data-importer')
                 )
             ));
-        } else {
-            // Fallback: Add inline JavaScript if file doesn't exist
-            add_action('admin_footer', array($this, 'add_inline_js'));
         }
-    }
-    
-    /**
-     * Add inline JavaScript as fallback
-     */
-    public function add_inline_js() {
-        ?>
-        <script type="text/javascript">
+        
+        // Add inline JavaScript for basic functionality if external file doesn't exist
+        if (!file_exists($js_file)) {
+            wp_add_inline_script('jquery', '
         jQuery(document).ready(function($) {
-            console.log('CDI Inline JS loaded');
-            
-            $('#cdi-upload-form').on('submit', function(e) {
+            $("#csv-upload-form").on("submit", function(e) {
                 e.preventDefault();
-                console.log('Form submitted');
                 
                 var formData = new FormData(this);
-                formData.append('action', 'cdi_upload_csv');
-                formData.append('nonce', '<?php echo wp_create_nonce('cdi_nonce'); ?>');
+                formData.append("action", "cdi_upload_csv");
+                formData.append("nonce", "' . wp_create_nonce('cdi_nonce') . '");
                 
                 $.ajax({
-                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                    type: 'POST',
+                    url: "' . admin_url('admin-ajax.php') . '",
+                    type: "POST",
                     data: formData,
                     processData: false,
                     contentType: false,
                     success: function(response) {
-                        console.log('Response:', response);
                         if (response.success && response.data.redirect) {
                             window.location.href = response.data.redirect;
                         } else {
-                            alert('Error: ' + (response.data ? response.data.message : 'Unknown error'));
+                            alert(response.data.message ? response.data.message : "Upload successful");
                         }
                     },
                     error: function(xhr, status, error) {
-                        console.error('Error:', status, error);
-                        alert('Upload failed: ' + error);
+                        console.error("Error:", status, error);
+                        alert("Upload failed: " + error);
                     }
                 });
             });
         });
-        </script>
-        <?php
+        ');
+        }
     }
     
     /**
@@ -397,7 +386,7 @@ class CrapsDataImporter {
     }
     
     /**
-     * Handle AJAX import processing - THE MISSING METHOD!
+     * Handle AJAX import processing
      */
     public function handle_ajax_import() {
         if (!$this->dependencies_loaded) {
