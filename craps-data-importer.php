@@ -373,20 +373,6 @@ class CrapsDataImporter {
     }
     
     /**
- * Handle AJAX import processing
- */
-public function handle_ajax_import() {
-    if (!$this->dependencies_loaded) {
-        wp_send_json_error('Plugin dependencies not loaded properly');
-        return;
-    }
-    
-    // Let the processor handle the import
-    $this->processor->process_import();
-}
-	
-	
-	/**
      * Handle data preview via AJAX
      */
     public function handle_ajax_preview() {
@@ -411,33 +397,16 @@ public function handle_ajax_import() {
     }
     
     /**
-     * Handle import processing via AJAX
+     * Handle AJAX import processing - THE MISSING METHOD!
      */
     public function handle_ajax_import() {
         if (!$this->dependencies_loaded) {
-            wp_send_json_error(array('message' => 'Plugin dependencies not loaded'));
+            wp_send_json_error('Plugin dependencies not loaded properly');
             return;
         }
         
-        check_ajax_referer('cdi_nonce', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => 'Unauthorized access'));
-            return;
-        }
-        
-        try {
-            $settings = array(
-                'auto_update' => filter_var($_POST['auto_update'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'similarity_threshold' => absint($_POST['similarity_threshold'] ?? 80),
-                'update_existing' => filter_var($_POST['update_existing'] ?? true, FILTER_VALIDATE_BOOLEAN)
-            );
-            
-            $result = $this->processor->process_import($settings);
-            wp_send_json_success($result);
-        } catch (Exception $e) {
-            wp_send_json_error(array('message' => $e->getMessage()));
-        }
+        // Let the processor handle the import
+        $this->processor->process_import();
     }
     
     /**
