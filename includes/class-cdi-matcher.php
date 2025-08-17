@@ -60,117 +60,233 @@ class CDI_Matcher {
     }
     
     /**
-     * Find casino by name with fuzzy matching
+     * Find casino by name with enhanced fuzzy matching (from your original script)
      */
-    public function find_casino_by_name($casino_name) {
+    public function find_casino_by_name($casino_name, $location_hint = '') {
         if (empty($casino_name)) {
             return null;
         }
         
-        // First try exact match
-        $exact_match = $this->find_exact_casino_match($casino_name);
-        if ($exact_match) {
-            return $exact_match;
-        }
+        // Use the enhanced matching logic from your original script
+        $match_result = $this->find_existing_casino_with_debug($casino_name, $location_hint);
         
-        // Try fuzzy matching
-        return $this->find_fuzzy_casino_match($casino_name);
-    }
-    
-    /**
-     * Find exact casino match
-     */
-    private function find_exact_casino_match($casino_name) {
-        $args = array(
-            'post_type' => 'at_biz_dir',
-            'post_status' => 'publish',
-            'title' => $casino_name,
-            'posts_per_page' => 1
-        );
-        
-        $query = new WP_Query($args);
-        
-        if ($query->have_posts()) {
-            $post = $query->posts[0];
-            wp_reset_postdata();
-            return $post->ID;
+        if ($match_result['post']) {
+            return $match_result['post']->ID;
         }
         
         return null;
     }
     
     /**
-     * Find fuzzy casino match using similarity
+     * Enhanced fuzzy matching with debug info and location context (from your original script)
      */
-    private function find_fuzzy_casino_match($casino_name) {
-        $args = array(
-            'post_type' => 'at_biz_dir',
-            'post_status' => 'publish',
-            'posts_per_page' => 100,
-            'meta_query' => array(
-                'relation' => 'OR',
-                array(
-                    'key' => '_category',
-                    'value' => 'casino',
-                    'compare' => 'LIKE'
-                ),
-                array(
-                    'key' => '_listing_category',
-                    'value' => 'casino',
-                    'compare' => 'LIKE'
-                )
-            )
+    private function find_existing_casino_with_debug($casino_name, $location_hint = '') {
+        $debug_info = array(
+            'original_name' => $casino_name,
+            'location_hint' => $location_hint,
+            'search_attempts' => array(),
+            'best_match' => null,
+            'similarity_score' => 0,
+            'match_method' => 'none'
         );
         
-        $query = new WP_Query($args);
-        $best_match = null;
-        $best_similarity = 0;
-        $threshold = cdi_get_option('similarity_threshold', 80);
+        // Create search variations with better normalization
+        $search_variations = array(
+            $casino_name,
+            $this->clean_casino_name($casino_name),
+            str_replace(array('&', 'and'), '', $casino_name),
+            preg_replace('/\s+/', ' ', trim($casino_name)),
+            str_replace(array('Casino', 'Hotel', 'Resort'), '', $casino_name),
+            preg_replace('/[^\w\s]/', '', $casino_name) // Remove special characters
+        );
         
-        if ($query->have_posts()) {
-            while ($query->have_posts()) {
-                $query->the_post();
-                $title = get_the_title();
-                
-                $similarity = $this->calculate_similarity($casino_name, $title);
-                
-                if ($similarity > $threshold && $similarity > $best_similarity) {
-                    $best_similarity = $similarity;
-                    $best_match = get_the_ID();
-                }
-            }
-            wp_reset_postdata();
+        // Add location-specific variations if we have location context
+        if (!empty($location_hint)) {
+            $search_variations[] = $casino_name . ' ' . $location_hint;
+            $search_variations[] = $this->clean_casino_name($casino_name) . ' ' . $location_hint;
         }
         
-        return $best_match;
+        // Remove duplicates and empty strings
+        $search_variations = array_unique(array_filter($search_variations));
+        
+        $best_match = null;
+        $best_similarity = 0;
+        $match_method = 'none';
+        $location_boost_applied = false;
+        
+        foreach ($search_variations as $index => $search_term) {
+            if (empty($search_term)) continue;
+            
+            $debug_info['search_attempts'][] = array(
+                'variation' => $search_term,
+                'method' => 'exact_title',
+                'results' => 0
+            );
+            
+            // 1. Try exact title match first
+            $posts = get_posts(array(
+                'post_type' => 'at_biz_dir',
+                'post_status' => 'publish',
+                'title' => $search_term,
+                'numberposts' => 1
+            ));
+            
+            if (!empty($posts)) {
+                $debug_info['search_attempts'][count($debug_info['search_attempts']) - 1]['results'] = 1;
+                $debug_info['best_match'] = $posts[0];
+                $debug_info['similarity_score'] = 100;
+                $debug_info['match_method'] = 'exact_title';
+                return array(
+                    'post' => $posts[0],
+                    'debug' => $debug_info,
+                    'matching_info' => "Exact title match: '{$posts[0]->post_title}' (100% similarity)"
+                );
+            }
+            
+            // 2. Try fuzzy search with similarity scoring
+            $posts = get_posts(array(
+                'post_type' => 'at_biz_dir',
+                'post_status' => 'publish',
+                's' => $search_term,
+                'numberposts' => 30 // Increased for better location matching
+            ));
+            
+            $debug_info['search_attempts'][count($debug_info['search_attempts']) - 1]['results'] = count($posts);
+            
+            foreach ($posts as $post) {
+                // Calculate similarity percentage
+                $similarity = 0;
+                similar_text(strtolower($casino_name), strtolower($post->post_title), $similarity);
+                
+                // Also try similarity with cleaned names
+                $clean_original = $this->clean_casino_name($casino_name);
+                $clean_found = $this->clean_casino_name($post->post_title);
+                $clean_similarity = 0;
+                similar_text(strtolower($clean_original), strtolower($clean_found), $clean_similarity);
+                
+                // Use the higher similarity score
+                $final_similarity = max($similarity, $clean_similarity);
+                
+                // LOCATION CONTEXT BOOST: If we have location hint and post matches location, boost similarity
+                if (!empty($location_hint) && $final_similarity >= 60) {
+                    // Get post location/terms to check for location match
+                    $post_locations = wp_get_post_terms($post->ID, 'at_biz_dir-location', array('fields' => 'names'));
+                    $post_content_lower = strtolower($post->post_title . ' ' . $post->post_content);
+                    $location_hint_lower = strtolower($location_hint);
+                    
+                    $location_match_found = false;
+                    if (!empty($post_locations)) {
+                        foreach ($post_locations as $post_location) {
+                            if (stripos($post_location, $location_hint) !== false) {
+                                $location_match_found = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Also check if location hint appears in post content
+                    if (!$location_match_found && stripos($post_content_lower, $location_hint_lower) !== false) {
+                        $location_match_found = true;
+                    }
+                    
+                    if ($location_match_found) {
+                        $final_similarity = min(100, $final_similarity + 10); // 10% boost for location match
+                        $location_boost_applied = true;
+                    }
+                }
+                
+                if ($final_similarity > $best_similarity && $final_similarity >= 70) { // Raised threshold
+                    $best_similarity = $final_similarity;
+                    $best_match = $post;
+                    $match_method = ($clean_similarity > $similarity) ? 'fuzzy_cleaned' : 'fuzzy_original';
+                    if ($location_boost_applied) {
+                        $match_method .= '_location_boost';
+                    }
+                }
+                
+                // Also check for substring matches (useful for "Casino Name" vs "Casino Name Hotel")
+                if (stripos($post->post_title, $search_term) !== false || 
+                    stripos($search_term, $post->post_title) !== false) {
+                    
+                    $substring_similarity = min(
+                        (strlen($search_term) / strlen($post->post_title)) * 100,
+                        (strlen($post->post_title) / strlen($search_term)) * 100
+                    );
+                    
+                    // Apply location boost to substring matches too
+                    if (!empty($location_hint) && $substring_similarity >= 60) {
+                        $post_locations = wp_get_post_terms($post->ID, 'at_biz_dir-location', array('fields' => 'names'));
+                        if (!empty($post_locations)) {
+                            foreach ($post_locations as $post_location) {
+                                if (stripos($post_location, $location_hint) !== false) {
+                                    $substring_similarity = min(100, $substring_similarity + 10);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if ($substring_similarity > $best_similarity && $substring_similarity >= 70) {
+                        $best_similarity = $substring_similarity;
+                        $best_match = $post;
+                        $match_method = 'substring';
+                    }
+                }
+            }
+        }
+        
+        // Update debug info with best match
+        if ($best_match) {
+            $debug_info['best_match'] = $best_match;
+            $debug_info['similarity_score'] = round($best_similarity, 1);
+            $debug_info['match_method'] = $match_method;
+            
+            // RAISED THRESHOLD: Only return matches above 70% to reduce false positives
+            if ($best_similarity >= 70) {
+                $location_text = $location_boost_applied ? ' (location verified)' : '';
+                $matching_info = "Found: '{$best_match->post_title}' ({$debug_info['similarity_score']}% similarity via {$match_method}){$location_text}";
+                return array(
+                    'post' => $best_match,
+                    'debug' => $debug_info,
+                    'matching_info' => $matching_info
+                );
+            }
+        }
+        
+        // No good match found
+        $debug_info['similarity_score'] = $best_similarity > 0 ? round($best_similarity, 1) : 0;
+        $debug_info['match_method'] = 'no_match';
+        
+        $best_sim_text = $best_similarity > 0 ? ", best similarity: " . round($best_similarity, 1) . "%" : "";
+        
+        return array(
+            'post' => null,
+            'debug' => $debug_info,
+            'matching_info' => "No match found (searched " . count($search_variations) . " variations{$best_sim_text})"
+        );
     }
     
     /**
-     * Calculate similarity between two strings
+     * Clean casino name for better matching
      */
-    private function calculate_similarity($str1, $str2) {
-        $str1 = strtolower(trim($str1));
-        $str2 = strtolower(trim($str2));
+    private function clean_casino_name($name) {
+        // Remove apostrophes and various punctuation that cause matching issues
+        $name = str_replace(array("'", "'", "`", '"'), '', $name);
         
-        // Remove common words that might interfere with matching
-        $common_words = array('casino', 'hotel', 'resort', 'the', 'las', 'vegas');
+        // Remove common casino suffixes that interfere with matching
+        $name = str_replace(array(' Casino', ' Hotel', ' Resort', ' & Casino', ' Hotel & Casino', ' Casino & Hotel'), '', $name);
         
-        foreach ($common_words as $word) {
-            $str1 = str_replace($word, '', $str1);
-            $str2 = str_replace($word, '', $str2);
-        }
+        // Normalize common words
+        $name = str_replace(array('&'), 'and', $name);
         
-        $str1 = trim(preg_replace('/\s+/', ' ', $str1));
-        $str2 = trim(preg_replace('/\s+/', ' ', $str2));
+        // Normalize spacing
+        $name = preg_replace('/\s+/', ' ', trim($name));
         
-        if (empty($str1) || empty($str2)) {
-            return 0;
-        }
+        // Normalize common abbreviations
+        $name = str_replace(array('St.', 'St '), 'Street ', $name);
+        $name = str_replace(array('Ave.', 'Ave '), 'Avenue ', $name);
         
-        // Use PHP's similar_text function
-        similar_text($str1, $str2, $percent);
-        
-        return $percent;
+        return trim($name);
     }
     
     /**

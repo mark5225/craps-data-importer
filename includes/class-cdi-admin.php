@@ -1,4 +1,13 @@
-<?php
+<div class="tablenav top">
+                    <div class="alignleft actions">
+                        <button type="button" id="select-all-bubble" class="button">Select All Bubble Craps</button>
+                        <button type="button" id="select-all-table" class="button">Select All Table Only</button>
+                        <button type="button" id="select-all-updates" class="button">Select All Changes</button>
+                        <button type="button" id="deselect-all" class="button">Deselect All</button>
+                    </div>
+                    <div class="alignright actions">
+                        <button type="submit" class="button button-primary button-large">
+                            <?php _e('Process Selecte<?php
 /**
  * CDI_Admin - Admin interface for Craps Data Importer
  */
@@ -150,7 +159,9 @@ class CDI_Admin {
                 
                 <div class="tablenav top">
                     <div class="alignleft actions">
-                        <button type="button" id="select-all-updates" class="button">Select All Updates</button>
+                        <button type="button" id="select-all-bubble" class="button">Select All Bubble Craps</button>
+                        <button type="button" id="select-all-table" class="button">Select All Table Only</button>
+                        <button type="button" id="select-all-updates" class="button">Select All Changes</button>
                         <button type="button" id="deselect-all" class="button">Deselect All</button>
                     </div>
                     <div class="alignright actions">
@@ -161,87 +172,33 @@ class CDI_Admin {
                 </div>
                 
                 <div class="cdi-review-container">
-                    <?php foreach ($review_data as $index => $item): ?>
-                        <div class="cdi-review-item <?php echo $item['casino_id'] ? 'has-match' : 'no-match'; ?>">
-                            <div class="review-header">
-                                <label class="review-checkbox">
-                                    <input type="checkbox" name="process_row[]" value="<?php echo $index; ?>" 
-                                           <?php echo (!empty($item['changes']) || !$item['casino_id']) ? 'checked' : ''; ?>>
-                                    <strong><?php echo esc_html($item['casino_name']); ?></strong>
-                                    
-                                    <?php if ($item['casino_id']): ?>
-                                        <span class="status-badge matched">✓ Matched</span>
-                                        <a href="<?php echo get_permalink($item['casino_id']); ?>" target="_blank" class="view-entry">
-                                            View Entry →
-                                        </a>
-                                        <a href="<?php echo get_edit_post_link($item['casino_id']); ?>" target="_blank" class="edit-entry">
-                                            Edit →
-                                        </a>
-                                    <?php else: ?>
-                                        <span class="status-badge new">+ New Entry</span>
-                                    <?php endif; ?>
-                                </label>
-                            </div>
-                            
-                            <?php if ($item['casino_id'] && !empty($item['changes'])): ?>
-                                <div class="changes-table">
-                                    <h4>Proposed Changes:</h4>
-                                    <table class="wp-list-table widefat">
-                                        <thead>
-                                            <tr>
-                                                <th>Field</th>
-                                                <th>Current Value</th>
-                                                <th>New Value</th>
-                                                <th>Change</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($item['changes'] as $field => $change): ?>
-                                                <tr class="change-row <?php echo $change['type']; ?>">
-                                                    <td><strong><?php echo esc_html($change['label']); ?></strong></td>
-                                                    <td class="current-value">
-                                                        <?php if (empty($change['current'])): ?>
-                                                            <em>Not set</em>
-                                                        <?php else: ?>
-                                                            <?php echo esc_html($change['current']); ?>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                    <td class="new-value">
-                                                        <strong><?php echo esc_html($change['new']); ?></strong>
-                                                    </td>
-                                                    <td class="change-type">
-                                                        <span class="change-badge <?php echo $change['type']; ?>">
-                                                            <?php echo ucfirst($change['type']); ?>
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            <?php elseif ($item['casino_id']): ?>
-                                <div class="no-changes">
-                                    <p><em>No changes needed - all values are up to date.</em></p>
-                                </div>
-                            <?php else: ?>
-                                <div class="new-entry-data">
-                                    <h4>New Entry Data:</h4>
-                                    <table class="wp-list-table widefat">
-                                        <tbody>
-                                            <?php foreach ($item['mapped_data'] as $field => $value): ?>
-                                                <?php if (!empty($value)): ?>
-                                                    <tr>
-                                                        <td><strong><?php echo esc_html($field); ?></strong></td>
-                                                        <td><?php echo esc_html($value); ?></td>
-                                                    </tr>
-                                                <?php endif; ?>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            <?php endif; ?>
+                    <?php 
+                    // Organize casinos by type
+                    $bubble_casinos = array_filter($review_data, function($item) { return $item['is_bubble_craps']; });
+                    $table_only_casinos = array_filter($review_data, function($item) { return !$item['is_bubble_craps']; });
+                    ?>
+                    
+                    <?php if (!empty($bubble_casinos)): ?>
+                        <div class="casino-section">
+                            <h2 class="section-header bubble-craps-header">
+                                🎲 Bubble Craps Casinos (<?php echo count($bubble_casinos); ?>)
+                            </h2>
+                            <?php foreach ($bubble_casinos as $index => $item): ?>
+                                <?php $this->render_casino_item($item, $index, 'bubble'); ?>
+                            <?php endforeach; ?>
                         </div>
-                    <?php endforeach; ?>
+                    <?php endif; ?>
+                    
+                    <?php if (!empty($table_only_casinos)): ?>
+                        <div class="casino-section">
+                            <h2 class="section-header table-craps-header">
+                                🎯 Table Craps Only (<?php echo count($table_only_casinos); ?>)
+                            </h2>
+                            <?php foreach ($table_only_casinos as $index => $item): ?>
+                                <?php $this->render_casino_item($item, $index, 'table'); ?>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
                 
                 <p class="submit">
@@ -260,6 +217,33 @@ class CDI_Admin {
             margin: 20px 0;
         }
         
+        .casino-section {
+            margin-bottom: 40px;
+        }
+        
+        .section-header {
+            background: linear-gradient(135deg, #f1f3f4 0%, #e8eaed 100%);
+            padding: 15px 20px;
+            margin: 0 0 20px 0;
+            border-radius: 8px;
+            border-left: 5px solid #1d3557;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1d3557;
+        }
+        
+        .bubble-craps-header {
+            border-left-color: #e63946;
+            background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+            color: #c53030;
+        }
+        
+        .table-craps-header {
+            border-left-color: #2d3748;
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            color: #2d3748;
+        }
+        
         .cdi-review-item {
             background: white;
             border: 1px solid #ddd;
@@ -274,6 +258,10 @@ class CDI_Admin {
         
         .cdi-review-item.no-match {
             border-left: 4px solid #ffb900;
+        }
+        
+        .cdi-review-item.bubble-casino {
+            border-left: 4px solid #e63946;
         }
         
         .review-header {
@@ -294,6 +282,17 @@ class CDI_Admin {
             margin: 0;
         }
         
+        .casino-controls {
+            margin-left: auto;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .edit-whole-casino, .edit-individual-fields {
+            font-size: 11px;
+            padding: 3px 8px;
+        }
+        
         .status-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -311,6 +310,11 @@ class CDI_Admin {
         .status-badge.new {
             background: #fff3cd;
             color: #856404;
+        }
+        
+        .status-badge.bubble {
+            background: #ffe6e6;
+            color: #c53030;
         }
         
         .view-entry, .edit-entry {
@@ -389,10 +393,32 @@ class CDI_Admin {
             justify-content: space-between;
             align-items: center;
         }
+        
+        .category-changes, .tag-changes {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f8ff;
+            border-radius: 3px;
+        }
+        
+        .category-changes h5, .tag-changes h5 {
+            margin: 0 0 5px 0;
+            color: #1d3557;
+        }
         </style>
         
         <script>
         jQuery(document).ready(function($) {
+            // Select all bubble craps casinos
+            $('#select-all-bubble').on('click', function() {
+                $('.bubble-casino input[type="checkbox"]').prop('checked', true);
+            });
+            
+            // Select all table only casinos
+            $('#select-all-table').on('click', function() {
+                $('.table-casino input[type="checkbox"]').prop('checked', true);
+            });
+            
             // Select all updates button
             $('#select-all-updates').on('click', function() {
                 $('.cdi-review-item.has-match input[type="checkbox"]').prop('checked', true);
@@ -407,6 +433,135 @@ class CDI_Admin {
         });
         </script>
         <?php
+    }
+    
+    /**
+     * Render individual casino item
+     */
+    private function render_casino_item($item, $index, $section_type) {
+        $casino_class = $item['casino_id'] ? 'has-match' : 'no-match';
+        $casino_class .= $section_type === 'bubble' ? ' bubble-casino' : ' table-casino';
+        ?>
+        <div class="cdi-review-item <?php echo $casino_class; ?>">
+            <div class="review-header">
+                <label class="review-checkbox">
+                    <input type="checkbox" name="process_row[]" value="<?php echo $index; ?>" 
+                           <?php echo (!empty($item['changes']) || !$item['casino_id']) ? 'checked' : ''; ?>>
+                    <strong><?php echo esc_html($item['casino_name']); ?></strong>
+                    
+                    <?php if ($item['casino_id']): ?>
+                        <span class="status-badge matched">✓ Matched</span>
+                        <?php if ($section_type === 'bubble'): ?>
+                            <span class="status-badge bubble">🎲 Bubble</span>
+                        <?php endif; ?>
+                        <a href="<?php echo get_permalink($item['casino_id']); ?>" target="_blank" class="view-entry">
+                            View Entry →
+                        </a>
+                        <a href="<?php echo get_edit_post_link($item['casino_id']); ?>" target="_blank" class="edit-entry">
+                            Edit →
+                        </a>
+                    <?php else: ?>
+                        <span class="status-badge new">+ New Entry</span>
+                    <?php endif; ?>
+                    
+                    <div class="casino-controls">
+                        <button type="button" class="button button-small edit-whole-casino" data-casino="<?php echo $index; ?>">
+                            Edit Whole Casino
+                        </button>
+                        <button type="button" class="button button-small edit-individual-fields" data-casino="<?php echo $index; ?>">
+                            Edit Fields
+                        </button>
+                    </div>
+                </label>
+            </div>
+            
+            <?php if (!empty($item['category_changes']) || !empty($item['tag_changes'])): ?>
+                <div class="category-changes">
+                    <?php if (!empty($item['category_changes'])): ?>
+                        <h5>Category Changes:</h5>
+                        <?php foreach ($item['category_changes'] as $cat_change): ?>
+                            <p><strong><?php echo ucfirst($cat_change['type']); ?>:</strong> 
+                               <?php echo esc_html($cat_change['category_name']); ?> 
+                               <em>(<?php echo esc_html($cat_change['reason']); ?>)</em></p>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    
+                    <?php if (!empty($item['tag_changes'])): ?>
+                        <h5>Tag Changes:</h5>
+                        <?php foreach ($item['tag_changes'] as $tag_change): ?>
+                            <p><strong><?php echo ucfirst($tag_change['action']); ?>:</strong> 
+                               <?php echo esc_html($tag_change['tag']); ?></p>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+            
+            <?php if ($item['casino_id'] && !empty($item['changes'])): ?>
+                <div class="changes-table">
+                    <h4>Proposed Changes:</h4>
+                    <table class="wp-list-table widefat">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Current Value</th>
+                                <th>New Value</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php 
+                            foreach ($item['changes'] as $field => $change): 
+                                if (is_array($change) && isset($change['label'])):
+                            ?>
+                                <tr class="change-row <?php echo $change['type']; ?>">
+                                    <td><strong><?php echo esc_html($change['label']); ?></strong></td>
+                                    <td class="current-value">
+                                        <?php if (empty($change['current'])): ?>
+                                            <em>Not set</em>
+                                        <?php else: ?>
+                                            <?php echo esc_html($change['current']); ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="new-value">
+                                        <strong><?php echo esc_html($change['new']); ?></strong>
+                                    </td>
+                                    <td class="change-type">
+                                        <span class="change-badge <?php echo $change['type']; ?>">
+                                            <?php echo ucfirst($change['type']); ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                            <?php 
+                                endif;
+                            endforeach; 
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php elseif ($item['casino_id']): ?>
+                <div class="no-changes">
+                    <p><em>No changes needed - all values are up to date.</em></p>
+                </div>
+            <?php else: ?>
+                <div class="new-entry-data">
+                    <h4>New Entry Data:</h4>
+                    <table class="wp-list-table widefat">
+                        <tbody>
+                            <?php foreach ($item['mapped_data'] as $field => $value): ?>
+                                <?php if (!empty($value) && !strpos($value, '(no change)') && !strpos($value, '(no CSV data)')): ?>
+                                    <tr>
+                                        <td><strong><?php echo esc_html($field); ?></strong></td>
+                                        <td><?php echo esc_html($value); ?></td>
+                                    </tr>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
     }
     
     /**
