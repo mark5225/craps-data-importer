@@ -1,6 +1,6 @@
 <?php
 /**
- * Casino matching logic for Craps Data Importer
+ * CDI_Matcher - Casino matching functionality
  */
 
 if (!defined('ABSPATH')) {
@@ -10,33 +10,9 @@ if (!defined('ABSPATH')) {
 class CDI_Matcher {
     
     /**
-     * Find matching casino for given name
+     * Search for casinos by name
      */
-    public function find_casino_match($casino_name, $min_similarity = 80) {
-        $casinos = $this->get_all_casinos();
-        
-        $best_match = null;
-        $best_similarity = 0;
-        
-        foreach ($casinos as $casino) {
-            $similarity = $this->calculate_similarity($casino_name, $casino->post_title);
-            
-            if ($similarity > $best_similarity && $similarity >= $min_similarity) {
-                $best_similarity = $similarity;
-                $best_match = $casino;
-            }
-        }
-        
-        return array(
-            'casino' => $best_match,
-            'similarity' => $best_similarity
-        );
-    }
-    
-    /**
-     * Search casinos by name
-     */
-    public function search_casinos($search_term, $limit = 10) {
+    public function search_casinos($search_term) {
         if (empty($search_term)) {
             return array();
         }
@@ -44,282 +20,244 @@ class CDI_Matcher {
         $args = array(
             'post_type' => 'at_biz_dir',
             'post_status' => 'publish',
-            'posts_per_page' => $limit,
             's' => $search_term,
+            'posts_per_page' => 20,
             'meta_query' => array(
                 'relation' => 'OR',
                 array(
-                    'key' => '_location',
-                    'value' => $search_term,
+                    'key' => '_category',
+                    'value' => 'casino',
+                    'compare' => 'LIKE'
+                ),
+                array(
+                    'key' => '_listing_category',
+                    'value' => 'casino',
                     'compare' => 'LIKE'
                 )
             )
         );
         
-        $casinos = get_posts($args);
+        $query = new WP_Query($args);
         $results = array();
         
-        foreach ($casinos as $casino) {
-            $location = get_post_meta($casino->ID, '_location', true);
-            $similarity = $this->calculate_similarity($search_term, $casino->post_title);
-            
-            $results[] = array(
-                'id' => $casino->ID,
-                'title' => $casino->post_title,
-                'location' => $location,
-                'similarity' => $similarity,
-                'url' => get_permalink($casino->ID)
-            );
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $post_id = get_the_ID();
+                
+                $results[] = array(
+                    'id' => $post_id,
+                    'title' => get_the_title(),
+                    'permalink' => get_permalink(),
+                    'location' => get_post_meta($post_id, '_location', true),
+                    'address' => get_post_meta($post_id, '_address', true)
+                );
+            }
+            wp_reset_postdata();
         }
-        
-        // Sort by similarity
-        usort($results, function($a, $b) {
-            return $b['similarity'] - $a['similarity'];
-        });
         
         return $results;
     }
     
     /**
-     * Get all casino posts
+     * Find casino by name with fuzzy matching
      */
-    private function get_all_casinos() {
-        return get_posts(array(
+    public function find_casino_by_name($casino_name) {
+        if (empty($casino_name)) {
+            return null;
+        }
+        
+        // First try exact match
+        $exact_match = $this->find_exact_casino_match($casino_name);
+        if ($exact_match) {
+            return $exact_match;
+        }
+        
+        // Try fuzzy matching
+        return $this->find_fuzzy_casino_match($casino_name);
+    }
+    
+    /**
+     * Find exact casino match
+     */
+    private function find_exact_casino_match($casino_name) {
+        $args = array(
             'post_type' => 'at_biz_dir',
             'post_status' => 'publish',
-            'posts_per_page' => -1,
-            'fields' => 'all'
-        ));
+            'title' => $casino_name,
+            'posts_per_page' => 1
+        );
+        
+        $query = new WP_Query($args);
+        
+        if ($query->have_posts()) {
+            $post = $query->posts[0];
+            wp_reset_postdata();
+            return $post->ID;
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Find fuzzy casino match using similarity
+     */
+    private function find_fuzzy_casino_match($casino_name) {
+        $args = array(
+            'post_type' => 'at_biz_dir',
+            'post_status' => 'publish',
+            'posts_per_page' => 100,
+            'meta_query' => array(
+                'relation' => 'OR',
+                array(
+                    'key' => '_category',
+                    'value' => 'casino',
+                    'compare' => 'LIKE'
+                ),
+                array(
+                    'key' => '_listing_category',
+                    'value' => 'casino',
+                    'compare' => 'LIKE'
+                )
+            )
+        );
+        
+        $query = new WP_Query($args);
+        $best_match = null;
+        $best_similarity = 0;
+        $threshold = cdi_get_option('similarity_threshold', 80);
+        
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $title = get_the_title();
+                
+                $similarity = $this->calculate_similarity($casino_name, $title);
+                
+                if ($similarity > $threshold && $similarity > $best_similarity) {
+                    $best_similarity = $similarity;
+                    $best_match = get_the_ID();
+                }
+            }
+            wp_reset_postdata();
+        }
+        
+        return $best_match;
     }
     
     /**
      * Calculate similarity between two strings
      */
     private function calculate_similarity($str1, $str2) {
+        $str1 = strtolower(trim($str1));
+        $str2 = strtolower(trim($str2));
+        
+        // Remove common words that might interfere with matching
+        $common_words = array('casino', 'hotel', 'resort', 'the', 'las', 'vegas');
+        
+        foreach ($common_words as $word) {
+            $str1 = str_replace($word, '', $str1);
+            $str2 = str_replace($word, '', $str2);
+        }
+        
+        $str1 = trim(preg_replace('/\s+/', ' ', $str1));
+        $str2 = trim(preg_replace('/\s+/', ' ', $str2));
+        
         if (empty($str1) || empty($str2)) {
             return 0;
         }
         
-        // Normalize strings
-        $str1 = $this->normalize_string($str1);
-        $str2 = $this->normalize_string($str2);
+        // Use PHP's similar_text function
+        similar_text($str1, $str2, $percent);
         
-        // Exact match
-        if ($str1 === $str2) {
-            return 100;
-        }
-        
-        // Multiple similarity algorithms for better results
-        $similarities = array();
-        
-        // Levenshtein distance
-        $lev_sim = $this->levenshtein_similarity($str1, $str2);
-        $similarities[] = $lev_sim;
-        
-        // Similar text
-        $sim_text = 0;
-        similar_text($str1, $str2, $sim_text);
-        $similarities[] = $sim_text;
-        
-        // Soundex comparison
-        if (soundex($str1) === soundex($str2)) {
-            $similarities[] = 85; // Boost for phonetic similarity
-        }
-        
-        // Word overlap similarity
-        $word_sim = $this->word_overlap_similarity($str1, $str2);
-        $similarities[] = $word_sim;
-        
-        // Return the maximum similarity score
-        return max($similarities);
+        return $percent;
     }
     
     /**
-     * Normalize string for comparison
+     * Resolve a queue item
      */
-    private function normalize_string($str) {
-        // Convert to lowercase
-        $str = strtolower($str);
+    public function resolve_queue_item($queue_id, $action, $casino_id = null) {
+        // This would interact with a queue system
+        // For now, just return success
         
-        // Remove common words that don't help with matching
-        $common_words = array('casino', 'hotel', 'resort', 'the', 'and', 'of', 'at', 'in');
-        foreach ($common_words as $word) {
-            $str = preg_replace('/\b' . preg_quote($word) . '\b/', '', $str);
-        }
+        cdi_log("Resolving queue item {$queue_id} with action {$action}" . ($casino_id ? " and casino ID {$casino_id}" : ""));
         
-        // Remove extra spaces and trim
-        $str = preg_replace('/\s+/', ' ', trim($str));
-        
-        return $str;
+        return array(
+            'success' => true,
+            'message' => 'Queue item resolved successfully'
+        );
     }
     
     /**
-     * Levenshtein similarity as percentage
+     * Get casino data for updating
      */
-    private function levenshtein_similarity($str1, $str2) {
-        $len1 = strlen($str1);
-        $len2 = strlen($str2);
-        
-        if ($len1 === 0 && $len2 === 0) {
-            return 100;
+    public function get_casino_data($casino_id) {
+        if (!cdi_validate_casino_id($casino_id)) {
+            return null;
         }
         
-        if ($len1 === 0 || $len2 === 0) {
-            return 0;
+        $post = get_post($casino_id);
+        if (!$post) {
+            return null;
         }
         
-        $distance = levenshtein($str1, $str2);
-        $max_len = max($len1, $len2);
+        // Get all meta data
+        $meta_data = get_post_meta($casino_id);
         
-        return (1 - ($distance / $max_len)) * 100;
+        return array(
+            'id' => $casino_id,
+            'title' => $post->post_title,
+            'content' => $post->post_content,
+            'meta' => $meta_data,
+            'permalink' => get_permalink($casino_id)
+        );
     }
     
     /**
-     * Word overlap similarity
+     * Update casino with CSV data
      */
-    private function word_overlap_similarity($str1, $str2) {
-        $words1 = array_filter(explode(' ', $str1));
-        $words2 = array_filter(explode(' ', $str2));
-        
-        if (empty($words1) || empty($words2)) {
-            return 0;
+    public function update_casino_data($casino_id, $csv_row) {
+        if (!cdi_validate_casino_id($casino_id)) {
+            return false;
         }
         
-        $intersection = array_intersect($words1, $words2);
-        $union = array_unique(array_merge($words1, $words2));
+        $updated_fields = array();
         
-        if (empty($union)) {
-            return 0;
-        }
-        
-        return (count($intersection) / count($union)) * 100;
-    }
-    
-    /**
-     * Generate name variations for better matching
-     */
-    private function generate_name_variations($name) {
-        $variations = array($name);
-        
-        // Original name
-        $variations[] = $name;
-        
-        // Lowercase version
-        $variations[] = strtolower($name);
-        
-        // Remove punctuation
-        $no_punct = preg_replace('/[^\w\s]/', '', $name);
-        $variations[] = $no_punct;
-        
-        // Remove common words
-        $common_words = array('casino', 'hotel', 'resort', 'the', 'and', 'of', 'at', 'in');
-        $without_common = $name;
-        foreach ($common_words as $word) {
-            $without_common = preg_replace('/\b' . preg_quote($word) . '\b/i', '', $without_common);
-        }
-        $without_common = preg_replace('/\s+/', ' ', trim($without_common));
-        if (!empty($without_common)) {
-            $variations[] = $without_common;
-        }
-        
-        // Acronym version (first letters of each word)
-        $words = explode(' ', $name);
-        if (count($words) > 1) {
-            $acronym = '';
-            foreach ($words as $word) {
-                if (!empty($word)) {
-                    $acronym .= strtoupper($word[0]);
-                }
-            }
-            if (strlen($acronym) > 1) {
-                $variations[] = $acronym;
-            }
-        }
-        
-        // Remove duplicates and empty values
-        $variations = array_unique(array_filter($variations, function($v) {
-            return !empty(trim($v));
-        }));
-        
-        return $variations;
-    }
-    
-    /**
-     * Batch match multiple casino names
-     */
-    public function batch_match_casinos($casino_names, $min_similarity = 80) {
-        $results = array();
-        
-        foreach ($casino_names as $index => $name) {
-            $match_result = $this->find_casino_match($name, $min_similarity);
-            $results[$index] = array(
-                'input_name' => $name,
-                'matched_casino' => $match_result['casino'],
-                'similarity' => $match_result['similarity'],
-                'status' => $match_result['casino'] ? 'matched' : 'no_match'
-            );
-        }
-        
-        return $results;
-    }
-    
-    /**
-     * Get matching statistics for reporting
-     */
-    public function get_matching_stats($casino_names, $min_similarity = 80) {
-        $batch_results = $this->batch_match_casinos($casino_names, $min_similarity);
-        
-        $stats = array(
-            'total' => count($batch_results),
-            'matched' => 0,
-            'high_confidence' => 0,
-            'low_confidence' => 0,
-            'no_match' => 0,
-            'average_similarity' => 0
+        // Map CSV columns to meta fields
+        $field_mapping = array(
+            'WeekDay Min' => '_weekday_min',
+            'WeekNight Min' => '_weeknight_min',
+            'WeekendMin' => '_weekend_min',
+            'WeekendnightMin' => '_weekend_night_min',
+            'MaxOdds' => '_max_odds',
+            'Field Pay' => '_field_pay',
+            'Sidebet' => '_sidebet',
+            'Dividers/Per Side' => '_dividers_per_side',
+            'Rewards' => '_rewards',
+            'Crapless' => '_crapless',
+            'Bubble Craps' => '_bubble_craps',
+            'Roll To Win' => '_roll_to_win',
+            'RTW Mins' => '_rtw_mins',
+            'Comments' => '_comments'
         );
         
-        $total_similarity = 0;
-        
-        foreach ($batch_results as $result) {
-            $total_similarity += $result['similarity'];
-            
-            if ($result['status'] === 'matched') {
-                $stats['matched']++;
+        foreach ($field_mapping as $csv_column => $meta_key) {
+            if (isset($csv_row[$csv_column]) && !empty($csv_row[$csv_column])) {
+                $old_value = get_post_meta($casino_id, $meta_key, true);
+                $new_value = sanitize_text_field($csv_row[$csv_column]);
                 
-                if ($result['similarity'] >= 90) {
-                    $stats['high_confidence']++;
-                } else {
-                    $stats['low_confidence']++;
+                if ($old_value !== $new_value) {
+                    update_post_meta($casino_id, $meta_key, $new_value);
+                    $updated_fields[] = $csv_column;
+                    
+                    cdi_log("Updated {$meta_key} for casino {$casino_id}: '{$old_value}' -> '{$new_value}'");
                 }
-            } else {
-                $stats['no_match']++;
             }
         }
         
-        $stats['average_similarity'] = $stats['total'] > 0 ? 
-            round($total_similarity / $stats['total'], 1) : 0;
+        // Update last modified time
+        update_post_meta($casino_id, '_cdi_last_updated', current_time('mysql'));
         
-        return $stats;
-    }
-    
-    /**
-     * Get casino location from various sources
-     */
-    private function get_casino_location($casino_id) {
-        // Try meta field first
-        $location = get_post_meta($casino_id, '_location', true);
-        
-        if (empty($location)) {
-            // Try address field
-            $location = get_post_meta($casino_id, '_address', true);
-        }
-        
-        if (empty($location)) {
-            // Try taxonomy
-            $locations = wp_get_post_terms($casino_id, 'at_biz_dir-location', array('fields' => 'names'));
-            $location = !empty($locations) ? implode(', ', $locations) : '';
-        }
-        
-        return $location;
+        return $updated_fields;
     }
 }

@@ -1,85 +1,38 @@
 /**
- * COMPLETE admin.js file for Craps Data Importer
- * Enhanced with investigation features
+ * Admin JavaScript for Craps Data Importer
+ * FIXED VERSION - Matches the WordPress localization
  */
 
-(function($) {
-    'use strict';
-
-    // Main CDI object
-    window.CDI = {
+jQuery(document).ready(function($) {
+    
+    var CdiAdmin = {
         
-        // Initialize everything when DOM is ready
         init: function() {
-            console.log('CDI Admin JS initializing...');
             this.bindEvents();
-            this.initializeComponents();
+            this.checkConfig();
         },
         
-        // Bind all event handlers
         bindEvents: function() {
-            var self = this;
-            console.log('Binding events...');
-            
             // File upload form
-            $(document).on('submit', '#cdi-upload-form', function(e) {
-                e.preventDefault();
-                self.handleFileUpload(this);
-            });
+            $('#csv-upload-form').on('submit', this.handleFileUpload.bind(this));
             
-            // Process import button
-            $(document).on('click', '#cdi-process-selected', function(e) {
-                e.preventDefault();
-                self.processImport();
-            });
+            // Import form
+            $('#import-form').on('submit', this.handleImport.bind(this));
             
-            // Settings form changes
-            $(document).on('change', '#cdi-settings-form input', function() {
-                console.log('Settings changed');
-                // Auto-save settings if needed
-            });
+            // Search functionality
+            $('.cdi-search').on('input', this.handleSearch.bind(this));
             
-            // Range slider updates
-            $(document).on('input', '#similarity_threshold', function() {
-                $('#threshold_value').text(this.value + '%');
-            });
-            
-            // Queue item actions
-            $(document).on('click', '.cdi-resolve-item', function(e) {
-                e.preventDefault();
-                self.resolveQueueItem(this);
-            });
-            
-            // Skip queue item
-            $(document).on('click', '.cdi-skip-item', function(e) {
-                e.preventDefault();
-                self.skipQueueItem(this);
-            });
-            
-            console.log('Events bound successfully');
+            // Queue resolution
+            $('.resolve-queue-item').on('click', this.handleResolveQueue.bind(this));
         },
         
-        // Initialize components
-        initializeComponents: function() {
-            console.log('Initializing components...');
-            
-            // Auto-start import if on import step
-            if (window.location.href.indexOf('step=import') > -1) {
-                console.log('Auto-starting import...');
-                this.processImport();
-            }
-            
-            // Initialize tooltips if available
-            if (typeof $.fn.tooltip === 'function') {
-                $('[data-toggle="tooltip"]').tooltip();
-            }
-            
-            // Check if cdiAjax is available
+        checkConfig: function() {
+            // FIXED: Check for the correct variable name that WordPress creates
             if (typeof window.cdiAjax === 'undefined') {
-                console.error('cdiAjax object not found! Check if script is properly localized.');
+                console.error('CDI Admin: cdiAjax object not found. Check if script is properly localized.');
                 this.showNotice('error', 'JavaScript configuration error. Please refresh the page.');
             } else {
-                console.log('cdiAjax object found:', window.cdiAjax);
+                console.log('CDI Admin: cdiAjax object found:', window.cdiAjax);
             }
         },
         
@@ -88,22 +41,22 @@
             var self = this;
             var $form = $(form);
             
-            console.log('Starting file upload...');
+            console.log('CDI Admin: Starting file upload...');
             
             // Check if file is selected
             var fileInput = $form.find('input[type="file"]')[0];
             if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-                console.error('No file selected');
+                console.error('CDI Admin: No file selected');
                 self.showNotice('error', 'Please select a file to upload.');
                 return;
             }
             
             var file = fileInput.files[0];
-            console.log('File selected:', file.name, 'Size:', file.size, 'Type:', file.type);
+            console.log('CDI Admin: File selected:', file.name, 'Size:', file.size, 'Type:', file.type);
             
             // Basic file validation
             if (!file.name.toLowerCase().endsWith('.csv')) {
-                console.error('Invalid file type:', file.name);
+                console.error('CDI Admin: Invalid file type:', file.name);
                 self.showNotice('error', 'Please select a CSV file.');
                 return;
             }
@@ -111,7 +64,7 @@
             // Check file size (15MB max)
             var maxSize = 15 * 1024 * 1024; // 15MB
             if (file.size > maxSize) {
-                console.error('File too large:', file.size);
+                console.error('CDI Admin: File too large:', file.size);
                 self.showNotice('error', 'File is too large. Maximum size is 15MB.');
                 return;
             }
@@ -119,21 +72,22 @@
             var formData = new FormData(form);
             formData.append('action', 'cdi_upload_csv');
             
-            // Check if nonce is available
+            // FIXED: Check for the correct variable name
             if (typeof window.cdiAjax !== 'undefined' && window.cdiAjax.nonce) {
                 formData.append('nonce', window.cdiAjax.nonce);
-                console.log('Nonce added:', window.cdiAjax.nonce);
+                console.log('CDI Admin: Nonce added:', window.cdiAjax.nonce);
             } else {
-                console.error('No nonce available!');
+                console.error('CDI Admin: No nonce available!');
                 self.showNotice('error', 'Security token missing. Please refresh the page.');
                 return;
             }
             
             var $submitButton = $form.find('button[type="submit"]');
+            var originalText = $submitButton.text();
             $submitButton.prop('disabled', true).text('Processing...');
             
-            console.log('Sending AJAX request...');
-            console.log('Ajax URL:', window.cdiAjax ? window.cdiAjax.ajaxurl : '/wp-admin/admin-ajax.php');
+            console.log('CDI Admin: Sending AJAX request...');
+            console.log('CDI Admin: Ajax URL:', window.cdiAjax ? window.cdiAjax.ajaxurl : '/wp-admin/admin-ajax.php');
             
             $.ajax({
                 url: window.cdiAjax ? window.cdiAjax.ajaxurl : '/wp-admin/admin-ajax.php',
@@ -148,26 +102,29 @@
                     xhr.upload.addEventListener('progress', function(evt) {
                         if (evt.lengthComputable) {
                             var percentComplete = evt.loaded / evt.total;
-                            console.log('Upload progress:', Math.round(percentComplete * 100) + '%');
+                            var percent = Math.round(percentComplete * 100);
+                            $submitButton.text('Uploading... ' + percent + '%');
+                            console.log('CDI Admin: Upload progress:', percent + '%');
                         }
                     }, false);
                     
                     return xhr;
                 },
                 success: function(response) {
-                    console.log('Upload response:', response);
+                    console.log('CDI Admin: Upload response:', response);
                     
                     if (response && response.success) {
-                        console.log('Upload successful');
+                        console.log('CDI Admin: Upload successful');
                         
                         if (response.data && response.data.redirect) {
-                            console.log('Redirecting to:', response.data.redirect);
+                            console.log('CDI Admin: Redirecting to:', response.data.redirect);
                             window.location.href = response.data.redirect;
                         } else {
                             self.showNotice('success', 'File uploaded successfully');
+                            $submitButton.prop('disabled', false).text(originalText);
                         }
                     } else {
-                        console.error('Upload failed:', response);
+                        console.error('CDI Admin: Upload failed:', response);
                         var errorMessage = 'Upload failed';
                         
                         if (response && response.data) {
@@ -179,596 +136,186 @@
                         }
                         
                         self.showNotice('error', errorMessage);
+                        $submitButton.prop('disabled', false).text(originalText);
                     }
                 },
                 error: function(xhr, status, error) {
-                    console.error('AJAX Error:', status, error);
-                    console.error('Response Text:', xhr.responseText);
+                    console.error('CDI Admin: AJAX Error:', status, error);
+                    console.error('CDI Admin: Response Text:', xhr.responseText);
                     
                     var errorMessage = 'Upload failed';
                     
                     if (xhr.status === 413 || xhr.responseText.indexOf('413') > -1) {
-                        errorMessage += ': File too large. Please try a smaller file.';
-                    } else if (xhr.status === 413) {
-                        errorMessage += 'File too large. Please try a smaller file.';
-                    } else if (xhr.status === 500) {
-                        errorMessage += 'Server error. Check the server logs.';
+                        errorMessage += ': File too large. Please use a smaller file.';
                     } else if (xhr.status === 0) {
-                        errorMessage += 'Network error. Check your connection.';
+                        errorMessage += ': Network error. Please check your connection.';
+                    } else if (xhr.status >= 500) {
+                        errorMessage += ': Server error. Please try again.';
                     } else {
-                        errorMessage += error || 'Unknown error (Status: ' + xhr.status + ')';
+                        errorMessage += ': ' + error;
                     }
                     
                     self.showNotice('error', errorMessage);
-                },
-                complete: function() {
-                    console.log('AJAX request completed');
-                    $submitButton.prop('disabled', false).text('📤 Upload & Preview');
+                    $submitButton.prop('disabled', false).text(originalText);
                 }
             });
         },
         
-        // Process import with progress tracking
-        processImport: function() {
+        // Handle import processing
+        handleImport: function(e) {
+            e.preventDefault();
+            
             var self = this;
-            var settings = this.getImportSettings();
+            var $form = $(e.target);
+            var $button = $form.find('button[type="submit"]');
+            var originalText = $button.text();
             
-            console.log('Starting import process with settings:', settings);
+            $button.prop('disabled', true).text('Processing Import...');
             
-            // Show progress bar
-            $('#cdi-import-progress').show();
-            $('#cdi-import-results').hide();
+            var formData = new FormData(e.target);
+            formData.append('action', 'cdi_process_import');
             
-            this.updateProgress(0, 'Starting import...');
+            if (window.cdiAjax && window.cdiAjax.nonce) {
+                formData.append('nonce', window.cdiAjax.nonce);
+            }
             
             $.ajax({
-                url: window.cdiAjax.ajaxurl,
+                url: window.cdiAjax ? window.cdiAjax.ajaxurl : '/wp-admin/admin-ajax.php',
                 type: 'POST',
-                data: {
-                    action: 'cdi_process_import',
-                    nonce: window.cdiAjax.nonce,
-                    auto_update: settings.auto_update,
-                    similarity_threshold: settings.similarity_threshold,
-                    update_existing: settings.update_existing
-                },
+                data: formData,
+                processData: false,
+                contentType: false,
                 success: function(response) {
-                    console.log('Import response:', response);
-                    if (response && response.success) {
-                        self.updateProgress(100, 'Import complete!');
-                        self.showImportResults(response.data);
-                    } else {
-                        var errorMessage = 'Import failed';
-                        if (response && response.data) {
-                            if (typeof response.data === 'string') {
-                                errorMessage = response.data;
-                            } else if (response.data.message) {
-                                errorMessage = response.data.message;
-                            } else {
-                                errorMessage = 'Import failed: ' + JSON.stringify(response.data);
-                            }
-                        } else if (response && response.message) {
-                            errorMessage = response.message;
+                    if (response.success) {
+                        self.showNotice('success', response.data.message || 'Import completed successfully');
+                        
+                        if (response.data.redirect) {
+                            setTimeout(function() {
+                                window.location.href = response.data.redirect;
+                            }, 1500);
+                        } else {
+                            $button.prop('disabled', false).text(originalText);
                         }
-                        self.showNotice('error', errorMessage);
-                        console.error('Import failed with response:', response);
+                    } else {
+                        self.showNotice('error', 'Import failed: ' + response.data);
+                        $button.prop('disabled', false).text(originalText);
                     }
                 },
                 error: function(xhr, status, error) {
-                    console.error('Import error:', error);
+                    console.error('CDI Admin: Import error:', status, error);
                     self.showNotice('error', 'Import failed: ' + error);
-                },
-                timeout: 300000 // 5 minute timeout
-            });
-        },
-        
-        // Get import settings from form
-        getImportSettings: function() {
-            return {
-                auto_update: $('#auto_update_high').is(':checked') ? 1 : 0,
-                similarity_threshold: $('#similarity_threshold').val() || 80,
-                update_existing: $('#update_existing').is(':checked') ? 1 : 0
-            };
-        },
-        
-        // Update progress bar
-        updateProgress: function(percent, message) {
-            $('.cdi-progress-fill').css('width', percent + '%');
-            $('#cdi-progress-text').text(message);
-        },
-        
-        // Show import results
-        showImportResults: function(data) {
-            $('#cdi-import-progress').hide();
-            $('#cdi-import-results').show();
-            
-            var html = '<h3>Import Complete</h3>';
-            html += '<p>Processing finished successfully.</p>';
-            
-            if (data && data.stats) {
-                html += '<div class="cdi-stats">';
-                html += '<p><strong>Updated:</strong> ' + (data.stats.updated || 0) + ' casinos</p>';
-                html += '<p><strong>Queued for Review:</strong> ' + (data.stats.queued || 0) + ' items</p>';
-                html += '<p><strong>Skipped:</strong> ' + (data.stats.skipped || 0) + ' rows</p>';
-                html += '</div>';
-            }
-            
-            $('#cdi-results-content').html(html);
-        },
-        
-        // Show notification message
-        showNotice: function(type, message) {
-            console.log('Showing notice:', type, message);
-            
-            // Handle object messages by converting to string
-            if (typeof message === 'object') {
-                if (message && message.message) {
-                    message = message.message;
-                } else if (message && message.data) {
-                    message = message.data;
-                } else {
-                    message = JSON.stringify(message);
+                    $button.prop('disabled', false).text(originalText);
                 }
-            }
-            
-            var noticeClass = 'notice-' + type;
-            var notice = '<div class="notice ' + noticeClass + ' cdi-notice is-dismissible">';
-            notice += '<p><strong>Craps Data Importer:</strong> ' + this.escapeHtml(message) + '</p>';
-            notice += '<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>';
-            notice += '</div>';
-            
-            // Remove existing notices
-            $('.cdi-notice').remove();
-            
-            // Add new notice
-            if ($('.wrap').length > 0) {
-                $('.wrap').prepend(notice);
-            } else {
-                $('body').prepend('<div class="wrap">' + notice + '</div>');
-            }
-            
-            // Auto-remove after 10 seconds (longer for debugging)
-            setTimeout(function() {
-                $('.cdi-notice').fadeOut();
-            }, 10000);
-            
-            // Scroll to top to show notice
-            $('html, body').animate({ scrollTop: 0 }, 'fast');
-        },
-        
-        // Placeholder functions for features not yet implemented
-        openCasinoSearchModal: function(casinoName) {
-            console.log('Opening casino search modal for:', casinoName);
-            // Will implement later
-        },
-        
-        closeModal: function() {
-            console.log('Closing modal');
-            $('.cdi-modal').remove();
-        },
-        
-        resolveQueueItem: function(button) {
-            console.log('Resolving queue item');
-            // Will implement later
-        },
-        
-        skipQueueItem: function(button) {
-            console.log('Skipping queue item');
-            // Will implement later
-        },
-        
-        // Utility functions
-        escapeHtml: function(text) {
-            var map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
-        },
-        
-        formatNumber: function(num) {
-            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-        }
-    };
-
-    // ======================================
-    // NEW INVESTIGATION FEATURES
-    // ======================================
-    
-    // NEW: Mass selection functions
-    window.cdiMassSelect = function(action) {
-        console.log('Mass selecting all rows to:', action);
-        document.querySelectorAll('.cdi-row-action').forEach(select => {
-            select.value = action;
-        });
-        
-        // Update visual feedback
-        const actionText = action === 'update' ? 'Update' : 
-                          action === 'skip' ? 'Skip' : 
-                          action === 'review' ? 'Review' : action;
-        CDI.showNotice('success', `All rows set to: ${actionText}`);
-    };
-    
-    // NEW: Reset all selections
-    window.cdiResetAllSelections = function() {
-        console.log('Resetting all selections to default (update)');
-        document.querySelectorAll('.cdi-row-action').forEach(select => {
-            select.value = 'update';
-        });
-        CDI.showNotice('info', 'All selections reset to Update');
-    };
-    
-    // NEW: Smart selection based on confidence levels
-    window.cdiSmartSelect = function(selectionType) {
-        console.log('Smart selecting:', selectionType);
-        
-        const rows = document.querySelectorAll('.cdi-match-item');
-        let selectedCount = 0;
-        
-        rows.forEach(row => {
-            const confidence = parseInt(row.dataset.confidence) || 0;
-            const actionSelect = row.querySelector('.cdi-row-action');
-            
-            if (!actionSelect) return;
-            
-            switch (selectionType) {
-                case 'high-confidence':
-                    if (confidence >= 90) {
-                        actionSelect.value = 'update';
-                        selectedCount++;
-                    }
-                    break;
-                    
-                case 'low-confidence':
-                    if (confidence < 70) {
-                        actionSelect.value = 'review';
-                        selectedCount++;
-                    }
-                    break;
-                    
-                case 'no-changes':
-                    // Check if row has no relevant changes
-                    const changesTable = row.querySelector('.cdi-changes-preview table');
-                    if (!changesTable || changesTable.rows.length <= 1) {
-                        actionSelect.value = 'skip';
-                        selectedCount++;
-                    }
-                    break;
-            }
-        });
-        
-        const messages = {
-            'high-confidence': `${selectedCount} high-confidence rows set to Update`,
-            'low-confidence': `${selectedCount} low-confidence rows sent to Review`,
-            'no-changes': `${selectedCount} rows with no changes set to Skip`
-        };
-        
-        CDI.showNotice('success', messages[selectionType] || `${selectedCount} rows updated`);
-    };
-    
-    // NEW: Show investigation modal
-    window.cdiShowInvestigateModal = function(rowIndex) {
-        console.log('Opening investigation modal for row:', rowIndex);
-        
-        // Get row data from the hidden JSON script tag
-        const rowDataScript = document.querySelector(`.cdi-row-data[data-row="${rowIndex}"]`);
-        if (!rowDataScript) {
-            console.error('Row data not found for index:', rowIndex);
-            CDI.showNotice('error', 'Row data not found');
-            return;
-        }
-        
-        let rowData;
-        try {
-            rowData = JSON.parse(rowDataScript.textContent);
-        } catch (e) {
-            console.error('Failed to parse row data:', e);
-            CDI.showNotice('error', 'Failed to load row data');
-            return;
-        }
-        
-        // Get casino name (first non-empty value)
-        const casinoName = Object.values(rowData).find(val => val && val.toString().trim()) || 'Unknown Casino';
-        
-        // Update modal content
-        document.getElementById('cdi-row-number').textContent = rowIndex + 1;
-        document.getElementById('cdi-casino-name').textContent = casinoName;
-        
-        // Build the data table
-        const tableBody = document.getElementById('cdi-modal-table-body');
-        tableBody.innerHTML = '';
-        
-        // Define relevant fields for highlighting
-        const relevantFields = [
-            'Bubble Craps', 'WeekDay Min', 'WeekNight Min', 'WeekendMin', 
-            'WeekendnightMin', 'Rewards', 'Sidebet', 'Comments', 'Coordinates'
-        ];
-        
-        let hasComments = false;
-        let commentsContent = '';
-        
-        Object.entries(rowData).forEach(([field, value]) => {
-            const row = tableBody.insertRow();
-            
-            // Field name cell
-            const fieldCell = row.insertCell(0);
-            fieldCell.innerHTML = `<strong>${CDI.escapeHtml(field)}</strong>`;
-            
-            // Value cell
-            const valueCell = row.insertCell(1);
-            const displayValue = value && value.toString().trim() ? value : '<em style="color: #999;">Empty</em>';
-            valueCell.innerHTML = CDI.escapeHtml(displayValue);
-            
-            // Relevant indicator cell
-            const relevantCell = row.insertCell(2);
-            const isRelevant = relevantFields.includes(field);
-            relevantCell.innerHTML = isRelevant ? 
-                '<span style="color: #28a745;">✓ Yes</span>' : 
-                '<span style="color: #999;">○ No</span>';
-            
-            // Highlight relevant rows
-            if (isRelevant && value && value.toString().trim()) {
-                row.style.backgroundColor = '#f8f9fa';
-                row.style.borderLeft = '3px solid #007cba';
-            }
-            
-            // Check for comments
-            if (field.toLowerCase().includes('comment') && value && value.toString().trim()) {
-                hasComments = true;
-                commentsContent = value.toString();
-            }
-        });
-        
-        // Show/hide comments section
-        const commentsSection = document.getElementById('cdi-comments-section');
-        const commentsContentDiv = document.getElementById('cdi-comments-content');
-        
-        if (hasComments) {
-            commentsSection.style.display = 'block';
-            commentsContentDiv.textContent = commentsContent;
-        } else {
-            commentsSection.style.display = 'none';
-        }
-        
-        // Show the modal
-        document.getElementById('cdi-investigate-modal').style.display = 'block';
-        document.body.style.overflow = 'hidden'; // Prevent background scrolling
-    };
-    
-    // NEW: Close investigation modal
-    window.cdiCloseInvestigateModal = function() {
-        console.log('Closing investigation modal');
-        document.getElementById('cdi-investigate-modal').style.display = 'none';
-        document.body.style.overflow = ''; // Restore scrolling
-    };
-    
-    // NEW: Copy row data to clipboard
-    window.cdiCopyRowData = function() {
-        console.log('Copying row data to clipboard');
-        
-        const tableBody = document.getElementById('cdi-modal-table-body');
-        const rows = tableBody.querySelectorAll('tr');
-        
-        let clipboardText = 'Field\tValue\tRelevant\n';
-        
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            if (cells.length >= 3) {
-                const field = cells[0].textContent.trim();
-                const value = cells[1].textContent.trim();
-                const relevant = cells[2].textContent.includes('Yes') ? 'Yes' : 'No';
-                clipboardText += `${field}\t${value}\t${relevant}\n`;
-            }
-        });
-        
-        // Try to copy to clipboard
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(clipboardText).then(() => {
-                CDI.showNotice('success', 'Row data copied to clipboard');
-            }).catch(err => {
-                console.error('Failed to copy to clipboard:', err);
-                // Fallback: show data in a text area for manual copying
-                cdiShowCopyFallback(clipboardText);
             });
-        } else {
-            // Fallback for older browsers
-            cdiShowCopyFallback(clipboardText);
-        }
-    };
-    
-    // Helper function for copy fallback
-    function cdiShowCopyFallback(text) {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.top = '50%';
-        textarea.style.left = '50%';
-        textarea.style.transform = 'translate(-50%, -50%)';
-        textarea.style.width = '80%';
-        textarea.style.height = '300px';
-        textarea.style.zIndex = '99999';
-        textarea.style.backgroundColor = 'white';
-        textarea.style.border = '2px solid #333';
-        textarea.style.padding = '10px';
+        },
         
-        document.body.appendChild(textarea);
-        textarea.select();
-        textarea.focus();
-        
-        // Remove after 10 seconds
-        setTimeout(() => {
-            if (textarea.parentNode) {
-                textarea.parentNode.removeChild(textarea);
+        // Handle search functionality
+        handleSearch: function(e) {
+            var searchTerm = $(e.target).val();
+            var $results = $('.cdi-search-results');
+            
+            if (searchTerm.length < 3) {
+                $results.empty();
+                return;
             }
-        }, 10000);
-        
-        CDI.showNotice('info', 'Data selected for copying. Press Ctrl+C (or Cmd+C on Mac) to copy.');
-    }
-    
-    // NEW: Enhanced keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
-        // ESC to close modal
-        if (e.key === 'Escape') {
-            const modal = document.getElementById('cdi-investigate-modal');
-            if (modal && modal.style.display === 'block') {
-                cdiCloseInvestigateModal();
-            }
-        }
-        
-        // Ctrl/Cmd + A to select all for update (when not in an input)
-        if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !e.target.matches('input, textarea, select')) {
-            e.preventDefault();
-            cdiMassSelect('update');
-        }
-        
-        // Ctrl/Cmd + S to skip all (when not in an input)
-        if ((e.ctrlKey || e.metaKey) && e.key === 's' && !e.target.matches('input, textarea, select')) {
-            e.preventDefault();
-            cdiMassSelect('skip');
-        }
-    });
-    
-    // NEW: Enhanced row filtering functions
-    CDI.filterRowsByConfidence = function(minConfidence) {
-        const rows = document.querySelectorAll('.cdi-match-item');
-        let visibleCount = 0;
-        
-        rows.forEach(row => {
-            const confidence = parseInt(row.dataset.confidence) || 0;
-            if (confidence >= minConfidence) {
-                row.style.display = 'block';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        });
-        
-        console.log(`Filtered to ${visibleCount} rows with ${minConfidence}+ confidence`);
-        return visibleCount;
-    };
-    
-    CDI.filterRowsByAction = function(actionType) {
-        const rows = document.querySelectorAll('.cdi-match-item');
-        let visibleCount = 0;
-        
-        rows.forEach(row => {
-            const select = row.querySelector('.cdi-row-action');
-            if (select && select.value === actionType) {
-                row.style.display = 'block';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        });
-        
-        console.log(`Filtered to ${visibleCount} rows with action: ${actionType}`);
-        return visibleCount;
-    };
-    
-    CDI.showAllRows = function() {
-        document.querySelectorAll('.cdi-match-item').forEach(row => {
-            row.style.display = 'block';
-        });
-        console.log('Showing all rows');
-    };
-    
-    // NEW: Selection summary functions
-    CDI.getSelectionSummary = function() {
-        const selects = document.querySelectorAll('.cdi-row-action');
-        const summary = {
-            update: 0,
-            review: 0,
-            skip: 0,
-            total: selects.length
-        };
-        
-        selects.forEach(select => {
-            if (summary.hasOwnProperty(select.value)) {
-                summary[select.value]++;
-            }
-        });
-        
-        return summary;
-    };
-    
-    CDI.showSelectionSummary = function() {
-        const summary = CDI.getSelectionSummary();
-        const message = `Selection Summary: ${summary.update} Update, ${summary.review} Review, ${summary.skip} Skip (${summary.total} total)`;
-        console.log(message);
-        CDI.showNotice('info', message);
-        return summary;
-    };
-    
-    // NEW: Auto-save selections to localStorage (optional feature)
-    CDI.saveSelections = function() {
-        const selections = {};
-        document.querySelectorAll('.cdi-row-action').forEach((select, index) => {
-            selections[index] = select.value;
-        });
-        
-        try {
-            localStorage.setItem('cdi_preview_selections', JSON.stringify(selections));
-            console.log('Selections saved to localStorage');
-        } catch (e) {
-            console.warn('Could not save selections:', e);
-        }
-    };
-    
-    CDI.loadSelections = function() {
-        try {
-            const saved = localStorage.getItem('cdi_preview_selections');
-            if (saved) {
-                const selections = JSON.parse(saved);
-                document.querySelectorAll('.cdi-row-action').forEach((select, index) => {
-                    if (selections.hasOwnProperty(index)) {
-                        select.value = selections[index];
+            
+            if (window.cdiAjax && window.cdiAjax.nonce) {
+                $.ajax({
+                    url: window.cdiAjax.ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'cdi_search_casino',
+                        search: searchTerm,
+                        nonce: window.cdiAjax.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            // Display search results
+                            var html = '';
+                            $.each(response.data, function(i, casino) {
+                                html += '<div class="search-result" data-id="' + casino.id + '">';
+                                html += '<strong>' + casino.title + '</strong><br>';
+                                html += '<small>' + casino.location + '</small>';
+                                html += '</div>';
+                            });
+                            $results.html(html);
+                        }
                     }
                 });
-                console.log('Selections loaded from localStorage');
-                CDI.showNotice('info', 'Previous selections restored');
             }
-        } catch (e) {
-            console.warn('Could not load selections:', e);
+        },
+        
+        // Handle queue resolution
+        handleResolveQueue: function(e) {
+            e.preventDefault();
+            
+            var $button = $(e.target);
+            var queueId = $button.data('queue-id');
+            var action = $button.data('action');
+            
+            if (window.cdiAjax && window.cdiAjax.nonce) {
+                $.ajax({
+                    url: window.cdiAjax.ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'cdi_resolve_queue_item',
+                        queue_id: queueId,
+                        action: action,
+                        nonce: window.cdiAjax.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $button.closest('tr').fadeOut();
+                        }
+                    }
+                });
+            }
+        },
+        
+        // Show notice messages
+        showNotice: function(type, message) {
+            var $notice = $('<div class="notice notice-' + type + ' is-dismissible"><p>' + message + '</p></div>');
+            
+            // Remove existing notices
+            $('.wrap .notice').remove();
+            
+            // Add new notice
+            $('.wrap h1').after($notice);
+            
+            // Auto-dismiss success notices
+            if (type === 'success') {
+                setTimeout(function() {
+                    $notice.fadeOut();
+                }, 5000);
+            }
+            
+            // Make dismissible
+            $notice.on('click', '.notice-dismiss', function() {
+                $notice.fadeOut();
+            });
+            
+            // Add dismiss button if not present
+            if (!$notice.find('.notice-dismiss').length) {
+                $notice.append('<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>');
+            }
+        },
+        
+        // Utility function to get AJAX URL
+        getAjaxUrl: function() {
+            return window.cdiAjax ? window.cdiAjax.ajaxurl : '/wp-admin/admin-ajax.php';
+        },
+        
+        // Utility function to get nonce
+        getNonce: function() {
+            return window.cdiAjax ? window.cdiAjax.nonce : '';
         }
     };
     
-    // Auto-save selections when they change
-    document.addEventListener('change', function(e) {
-        if (e.target.matches('.cdi-row-action')) {
-            CDI.saveSelections();
-        }
-    });
+    // Initialize the admin interface
+    CdiAdmin.init();
     
-    // Load selections on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        // Small delay to ensure DOM is fully ready
-        setTimeout(() => {
-            CDI.loadSelections();
-        }, 500);
-    });
-
-    // Legacy support for the old function names used in the PHP
-    window.cdiSelectAllRows = function(action) {
-        if (typeof window.cdiMassSelect === 'function') {
-            window.cdiMassSelect(action);
-        } else {
-            console.error('cdiMassSelect function not available');
-        }
-    };
+    // Make it globally available for debugging
+    window.CdiAdmin = CdiAdmin;
     
-    window.cdiResetSelections = function() {
-        if (typeof window.cdiResetAllSelections === 'function') {
-            window.cdiResetAllSelections();
-        } else {
-            console.error('cdiResetAllSelections function not available');
-        }
-    };
-    
-    // Initialize when DOM is ready
-    $(document).ready(function() {
-        CDI.init();
-    });
-
-})(jQuery); // Pass jQuery to our wrapper function
+    console.log('CDI Admin: JavaScript loaded and initialized');
+});

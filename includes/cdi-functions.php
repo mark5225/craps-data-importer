@@ -8,6 +8,84 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Log messages for debugging
+ */
+function cdi_log($message) {
+    if (cdi_get_option('enable_logging', 0)) {
+        error_log('CDI: ' . $message);
+    }
+}
+
+/**
+ * Validate uploaded file
+ */
+function cdi_validate_uploaded_file($file) {
+    $result = array('valid' => false, 'message' => '');
+    
+    // Check if file was uploaded
+    if (!isset($file['tmp_name']) || empty($file['tmp_name'])) {
+        $result['message'] = 'No file was uploaded.';
+        return $result;
+    }
+    
+    // Check file size (15MB max)
+    $max_size = 15 * 1024 * 1024; // 15MB
+    if ($file['size'] > $max_size) {
+        $result['message'] = 'File is too large. Maximum size is 15MB.';
+        return $result;
+    }
+    
+    // Check file type
+    $allowed_types = array('text/csv', 'application/csv', 'text/plain');
+    if (!in_array($file['type'], $allowed_types)) {
+        $result['message'] = 'Invalid file type. Please upload a CSV file.';
+        return $result;
+    }
+    
+    // Check file extension
+    $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if ($file_extension !== 'csv') {
+        $result['message'] = 'Invalid file extension. Please upload a .csv file.';
+        return $result;
+    }
+    
+    // Check if file is readable
+    if (!is_readable($file['tmp_name'])) {
+        $result['message'] = 'Uploaded file is not readable.';
+        return $result;
+    }
+    
+    $result['valid'] = true;
+    return $result;
+}
+
+/**
+ * Get upload error message
+ */
+function cdi_get_upload_error_message($error_code) {
+    switch ($error_code) {
+        case UPLOAD_ERR_OK:
+            return 'No error';
+        case UPLOAD_ERR_INI_SIZE:
+            return 'File size exceeds upload_max_filesize directive';
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'File size exceeds MAX_FILE_SIZE directive';
+        case UPLOAD_ERR_PARTIAL:
+            return 'File was only partially uploaded';
+        case UPLOAD_ERR_NO_FILE:
+            return 'No file was uploaded';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Missing temporary folder';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Failed to write file to disk';
+        case UPLOAD_ERR_EXTENSION:
+            return 'File upload stopped by extension';
+        default:
+            return 'Unknown upload error';
+    }
+}
+
+/**
  * Truncate text to specified length
  */
 function cdi_truncate_text($text, $length = 50, $suffix = '...') {
@@ -131,153 +209,166 @@ function cdi_get_casino_location($casino_id) {
     if (empty($location)) {
         // Try taxonomy
         $locations = wp_get_post_terms($casino_id, 'at_biz_dir-location', array('fields' => 'names'));
-        $location = !empty($locations) ? implode(', ', $locations) : '';
+        $location = !empty($locations) ? $locations[0] : '';
     }
     
     return $location;
 }
 
 /**
- * Format date for display
+ * Format currency value
  */
-function cdi_format_date($date, $format = 'M j, Y g:i A') {
-    if (empty($date)) {
+function cdi_format_currency($value) {
+    if (empty($value) || !is_numeric($value)) {
+        return $value;
+    }
+    
+    return '$' . number_format($value, 0);
+}
+
+/**
+ * Clean casino name for matching
+ */
+function cdi_clean_casino_name($name) {
+    $name = strtolower(trim($name));
+    
+    // Remove common suffixes/prefixes
+    $replacements = array(
+        ' casino' => '',
+        ' hotel' => '',
+        ' resort' => '',
+        ' las vegas' => '',
+        ' lv' => '',
+        'the ' => '',
+        ' & ' => ' and ',
+    );
+    
+    foreach ($replacements as $search => $replace) {
+        $name = str_replace($search, $replace, $name);
+    }
+    
+    // Clean up whitespace
+    $name = preg_replace('/\s+/', ' ', $name);
+    $name = trim($name);
+    
+    return $name;
+}
+
+/**
+ * Parse minimum bet value
+ */
+function cdi_parse_min_bet($value) {
+    if (empty($value)) {
         return '';
     }
     
-    return date($format, strtotime($date));
-}
-
-/**
- * Calculate import success rate
- */
-function cdi_calculate_success_rate($total, $successful) {
-    if ($total == 0) {
-        return 0;
+    // Remove currency symbols and extra text
+    $value = preg_replace('/[^\d\.]/', '', $value);
+    
+    if (is_numeric($value)) {
+        return (int) $value;
     }
     
-    return round(($successful / $total) * 100, 1);
+    return $value;
 }
 
 /**
- * Get recent import statistics
+ * Parse odds value
  */
-function cdi_get_recent_stats($days = 30) {
-    global $wpdb;
-    
-    $table_name = $wpdb->prefix . 'cdi_import_history';
-    $date_threshold = date('Y-m-d H:i:s', strtotime("-{$days} days"));
-    
-    $stats = $wpdb->get_row($wpdb->prepare(
-        "SELECT 
-            COUNT(*) as import_count,
-            SUM(total_rows) as total_rows,
-            SUM(updated_casinos) as total_updated,
-            SUM(queued_items) as total_queued
-         FROM {$table_name} 
-         WHERE import_date >= %s",
-        $date_threshold
-    ));
-    
-    return array(
-        'imports' => $stats->import_count ?? 0,
-        'rows_processed' => $stats->total_rows ?? 0,
-        'casinos_updated' => $stats->total_updated ?? 0,
-        'items_queued' => $stats->total_queued ?? 0,
-        'success_rate' => cdi_calculate_success_rate(
-            $stats->total_rows ?? 0, 
-            $stats->total_updated ?? 0
-        )
-    );
-}
-
-/**
- * JSON encode for JavaScript with proper escaping
- */
-function cdi_json_encode_for_js($data) {
-    return wp_json_encode($data, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
-}
-
-/**
- * Check if Directorist plugin is active
- */
-function cdi_is_directorist_active() {
-    return class_exists('Directorist_Base') || is_plugin_active('directorist/directorist.php');
-}
-
-/**
- * Validate uploaded file
- */
-function cdi_validate_uploaded_file($file) {
-    if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
-        return array(
-            'valid' => false,
-            'message' => 'File upload error: ' . ($file['error'] ?? 'Unknown error')
-        );
+function cdi_parse_odds($value) {
+    if (empty($value)) {
+        return '';
     }
     
-    $allowed_extensions = array('csv');
-    $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    // Common patterns: "3x", "3X", "3x4x5x", etc.
+    $value = strtolower(trim($value));
     
-    if (!in_array($file_extension, $allowed_extensions)) {
-        return array(
-            'valid' => false,
-            'message' => 'Invalid file type. Only CSV files are allowed.'
-        );
-    }
+    // Remove extra spaces and normalize
+    $value = preg_replace('/\s+/', '', $value);
     
-    $max_size = wp_max_upload_size();
-    if ($file['size'] > $max_size) {
-        return array(
-            'valid' => false,
-            'message' => 'File too large. Maximum size is ' . size_format($max_size)
-        );
-    }
-    
-    return array(
-        'valid' => true,
-        'message' => 'File is valid'
-    );
+    return $value;
 }
 
 /**
- * Log import activity
+ * Check if casino has bubble craps
  */
-function cdi_log($message, $level = 'info') {
-    if (!cdi_get_option('enable_logging')) {
-        return;
-    }
+function cdi_has_bubble_craps($casino_id) {
+    $bubble_craps = get_post_meta($casino_id, '_bubble_craps', true);
+    return !empty($bubble_craps) && strtolower($bubble_craps) !== 'no';
+}
+
+/**
+ * Get directory post types that might be casinos
+ */
+function cdi_get_casino_post_types() {
+    return array('at_biz_dir', 'business', 'casino', 'listing');
+}
+
+/**
+ * Search for existing casino posts
+ */
+function cdi_search_casino_posts($search_term, $limit = 20) {
+    $post_types = cdi_get_casino_post_types();
     
-    $log_entry = sprintf(
-        '[%s] [%s] %s',
-        date('Y-m-d H:i:s'),
-        strtoupper($level),
-        $message
+    $args = array(
+        'post_type' => $post_types,
+        'post_status' => 'publish',
+        's' => $search_term,
+        'posts_per_page' => $limit,
+        'orderby' => 'relevance',
+        'order' => 'DESC'
     );
     
-    error_log($log_entry);
+    return get_posts($args);
 }
 
 /**
- * Get file upload errors
+ * Convert Yes/No values to boolean
  */
-function cdi_get_upload_error_message($error_code) {
-    switch ($error_code) {
-        case UPLOAD_ERR_INI_SIZE:
-            return 'File size exceeds PHP upload_max_filesize directive';
-        case UPLOAD_ERR_FORM_SIZE:
-            return 'File size exceeds HTML form MAX_FILE_SIZE directive';
-        case UPLOAD_ERR_PARTIAL:
-            return 'File was only partially uploaded';
-        case UPLOAD_ERR_NO_FILE:
-            return 'No file was uploaded';
-        case UPLOAD_ERR_NO_TMP_DIR:
-            return 'Missing temporary folder';
-        case UPLOAD_ERR_CANT_WRITE:
-            return 'Failed to write file to disk';
-        case UPLOAD_ERR_EXTENSION:
-            return 'File upload stopped by extension';
-        default:
-            return 'Unknown upload error';
+function cdi_parse_boolean($value) {
+    if (empty($value)) {
+        return '';
     }
+    
+    $value = strtolower(trim($value));
+    
+    if (in_array($value, array('yes', 'y', '1', 'true', 'on'))) {
+        return 'Yes';
+    } elseif (in_array($value, array('no', 'n', '0', 'false', 'off'))) {
+        return 'No';
+    }
+    
+    return $value;
+}
+
+/**
+ * Get current WordPress timezone
+ */
+function cdi_get_wp_timezone() {
+    $timezone_string = get_option('timezone_string');
+    
+    if (!empty($timezone_string)) {
+        return new DateTimeZone($timezone_string);
+    }
+    
+    $offset = get_option('gmt_offset');
+    $hours = (int) $offset;
+    $minutes = abs(($offset - $hours) * 60);
+    $offset_string = sprintf('%+03d:%02d', $hours, $minutes);
+    
+    return new DateTimeZone($offset_string);
+}
+
+/**
+ * Format date for display
+ */
+function cdi_format_date($date_string) {
+    if (empty($date_string)) {
+        return '';
+    }
+    
+    $timezone = cdi_get_wp_timezone();
+    $date = new DateTime($date_string, $timezone);
+    
+    return $date->format(get_option('date_format') . ' ' . get_option('time_format'));
 }

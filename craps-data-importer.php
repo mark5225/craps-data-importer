@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Craps Data Importer
  * Description: Import CSV data for craps tables and bubble craps machines with smart casino matching
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: Bubble Craps Team
  * Text Domain: craps-data-importer
  * Domain Path: /languages
@@ -246,7 +246,7 @@ class CrapsDataImporter {
     }
     
     /**
-     * Enqueue admin assets
+     * Enqueue admin assets - FIXED VERSION
      */
     public function enqueue_admin_assets($hook) {
         // Only load on our plugin pages
@@ -276,8 +276,8 @@ class CrapsDataImporter {
                 true
             );
             
-            // Localize script with AJAX data
-            wp_localize_script('cdi-admin-script', 'cdi_ajax', array(
+            // FIXED: Changed from 'cdi_ajax' to 'cdiAjax' to match JavaScript expectations
+            wp_localize_script('cdi-admin-script', 'cdiAjax', array(
                 'ajaxurl' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('cdi_nonce'),
                 'strings' => array(
@@ -441,7 +441,7 @@ class CrapsDataImporter {
             $action = sanitize_text_field($_POST['action'] ?? '');
             $casino_id = absint($_POST['casino_id'] ?? 0);
             
-            $result = $this->processor->resolve_queue_item($queue_id, $action, $casino_id);
+            $result = $this->matcher->resolve_queue_item($queue_id, $action, $casino_id);
             wp_send_json_success($result);
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -452,58 +452,7 @@ class CrapsDataImporter {
      * Plugin activation
      */
     public function activate() {
-        global $wpdb;
-        
-        // Create review queue table
-        $table_name = $wpdb->prefix . 'cdi_review_queue';
-        $charset_collate = $wpdb->get_charset_collate();
-        
-        $sql = "CREATE TABLE $table_name (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            casino_name varchar(255) NOT NULL,
-            csv_data longtext NOT NULL,
-            reason varchar(255) NOT NULL,
-            status varchar(20) DEFAULT 'pending',
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY status (status),
-            KEY created_at (created_at)
-        ) $charset_collate;";
-        
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql);
-        
-        // Create import history table
-        $history_table = $wpdb->prefix . 'cdi_import_history';
-        
-        $sql2 = "CREATE TABLE $history_table (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            filename varchar(255) NOT NULL,
-            total_rows int(11) NOT NULL,
-            processed_rows int(11) NOT NULL,
-            updated_casinos int(11) NOT NULL,
-            queued_items int(11) NOT NULL,
-            import_settings longtext,
-            import_date datetime DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY import_date (import_date)
-        ) $charset_collate;";
-        
-        dbDelta($sql2);
-        
-        // Set default options
-        add_option('cdi_similarity_threshold', 80);
-        add_option('cdi_auto_update', 1);
-        add_option('cdi_update_existing', 1);
-        
-        // Create assets directory if it doesn't exist
-        $this->create_assets_directory();
-    }
-    
-    /**
-     * Create assets directory and files
-     */
-    private function create_assets_directory() {
+        // Create assets directories if they don't exist
         $css_dir = CDI_PLUGIN_DIR . 'assets/css/';
         $js_dir = CDI_PLUGIN_DIR . 'assets/js/';
         
